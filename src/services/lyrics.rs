@@ -30,6 +30,7 @@ pub struct Line {
     pub text: String,
 }
 
+#[derive(Clone)]
 pub struct Update {
     pub key: Key,
     /// `None` when the song has no synced lyrics (or the lookup failed).

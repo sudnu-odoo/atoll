@@ -1,6 +1,6 @@
 use gdk4_x11::X11Surface;
 use gtk::prelude::*;
-use gtk::{gdk, Application, ApplicationWindow, CssProvider};
+use gtk::{Application, ApplicationWindow};
 
 use crate::island;
 use x11rb::connection::Connection;
@@ -13,19 +13,20 @@ use x11rb::protocol::Event;
 use x11rb::wrapper::ConnectionExt as _;
 
 /// Shows `child` in a transparent override-redirect window at the top center
-/// of the primary monitor. Returns false if the X11 setup failed.
+/// of the monitor named `connector` (e.g. "DisplayPort-7"). Returns None if
+/// the X11 setup failed. Destroying the window ends its X thread.
 pub fn show(
     app: &Application,
     child: &impl IsA<gtk::Widget>,
+    connector: String,
     hit: island::HitRect,
-    hover: async_channel::Sender<bool>,
-) -> bool {
-    load_css();
-
+    pointer: async_channel::Sender<island::Pointer>,
+) -> Option<ApplicationWindow> {
     // Input outside the notch is excluded by the island's input region.
     let window = ApplicationWindow::builder()
         .application(app)
         .title("Atoll")
+        .css_classes(["island"])
         .decorated(false)
         .resizable(false)
         .default_width(island::WIN_W)
@@ -42,16 +43,14 @@ pub fn show(
         .map(|s| s.xid() as u32)
     else {
         tracing::error!("not an X11 surface; Atoll needs an Xorg session");
-        app.quit();
-        return false;
+        return None;
     };
 
     let conn = match x11rb::connect(None) {
         Ok((conn, _)) => conn,
         Err(e) => {
             tracing::error!("cannot connect to X server: {e}");
-            app.quit();
-            return false;
+            return None;
         }
     };
 
@@ -70,12 +69,12 @@ pub fn show(
 
     window.present();
     let spawned = std::thread::Builder::new()
-        .name("x11".into())
-        .spawn(move || x_events(&conn, xid, &hit, &hover));
+        .name(format!("x11 {connector}"))
+        .spawn(move || x_events(&conn, xid, &connector, &hit, &pointer));
     if let Err(e) = spawned {
         tracing::error!("cannot start X event thread: {e}");
     }
-    true
+    Some(window)
 }
 
 /// Owns all X events for the island, on its own thread. It blocks in the
@@ -91,8 +90,9 @@ pub fn show(
 fn x_events(
     conn: &impl Connection,
     xid: u32,
+    connector: &str,
     hit: &island::HitRect,
-    hover: &async_channel::Sender<bool>,
+    pointer: &async_channel::Sender<island::Pointer>,
 ) {
     let mask = ChangeWindowAttributesAux::new().event_mask(EventMask::STRUCTURE_NOTIFY);
     if let Err(e) = conn.change_window_attributes(xid, &mask).map(|_| ()) {
@@ -107,7 +107,7 @@ fn x_events(
         tracing::warn!("RandR events unavailable, won't follow monitor changes: {e}");
     }
 
-    let mut target = target_position(conn);
+    let mut target = target_position(conn, connector);
     move_to(conn, xid, target);
     let mut inside = false;
 
@@ -127,20 +127,35 @@ fn x_events(
                 if now != inside {
                     inside = now;
                     tracing::debug!("hover {inside}");
-                    if hover.send_blocking(inside).is_err() {
+                    if pointer
+                        .send_blocking(island::Pointer::Hover(inside))
+                        .is_err()
+                    {
                         return; // UI is gone; we're shutting down.
                     }
+                }
+            }
+            // Clicks over the GNOME bar never reach GTK (the Shell takes
+            // them), so report primary-button presses on the notch ourselves.
+            Ok(Event::XinputRawButtonPress(ev)) if ev.detail == 1 && inside => {
+                let Some((x, y)) = pointer_at(conn, root, target) else {
+                    continue;
+                };
+                if pointer.send_blocking(island::Pointer::Click(x, y)).is_err() {
+                    return;
                 }
             }
             // One layout change sends a burst of these; moving is idempotent,
             // and only an actual change of position does anything.
             Ok(Event::RandrScreenChangeNotify(_) | Event::RandrNotify(_)) => {
-                let now = target_position(conn);
+                let now = target_position(conn, connector);
                 if now != target {
                     target = now;
                     move_to(conn, xid, target);
                 }
             }
+            // The monitor went away and the UI destroyed our window.
+            Ok(Event::DestroyNotify(ev)) if ev.window == xid => return,
             Ok(_) => {}
             Err(e) => {
                 // The X connection is gone (logout, X restart): nothing to do.
@@ -167,10 +182,16 @@ fn select_raw_motion(conn: &impl Connection, root: u32) -> Result<(), Box<dyn st
     conn.xinput_xi_query_version(2, 2)?.reply()?;
     let mask = xinput::EventMask {
         deviceid: xinput::Device::ALL_MASTER.into(),
-        mask: vec![xinput::XIEventMask::RAW_MOTION],
+        mask: vec![xinput::XIEventMask::RAW_MOTION | xinput::XIEventMask::RAW_BUTTON_PRESS],
     };
     conn.xinput_xi_select_events(root, &[mask])?.check()?;
     Ok(())
+}
+
+/// Pointer position relative to the island window.
+fn pointer_at(conn: &impl Connection, root: u32, (wx, wy): (i32, i32)) -> Option<(i32, i32)> {
+    let p = conn.query_pointer(root).ok()?.reply().ok()?;
+    Some((i32::from(p.root_x) - wx, i32::from(p.root_y) - wy))
 }
 
 /// Whether the pointer is over the notch. Raw events carry no position, so ask.
@@ -186,18 +207,23 @@ fn pointer_in(
     Some(px >= x && px < x + w && py >= y && py < y + h)
 }
 
-/// Top center of the primary monitor, in root-window coordinates.
-fn target_position(conn: &impl Connection) -> (i32, i32) {
+/// Top center of the monitor named `connector`, in root coordinates. Falls
+/// back to the primary (then first) monitor while RandR catches up.
+fn target_position(conn: &impl Connection, connector: &str) -> (i32, i32) {
     let root = conn.setup().roots[0].root;
     let (mx, my, mw) = conn
         .randr_get_monitors(root, true)
         .ok()
         .and_then(|c| c.reply().ok())
         .and_then(|r| {
-            let m = r
-                .monitors
-                .iter()
-                .find(|m| m.primary)
+            let named = r.monitors.iter().find(|m| {
+                conn.get_atom_name(m.name)
+                    .ok()
+                    .and_then(|c| c.reply().ok())
+                    .is_some_and(|a| a.name == connector.as_bytes())
+            });
+            let m = named
+                .or_else(|| r.monitors.iter().find(|m| m.primary))
                 .or(r.monitors.first())?;
             Some((i32::from(m.x), i32::from(m.y), i32::from(m.width)))
         })
@@ -206,7 +232,7 @@ fn target_position(conn: &impl Connection) -> (i32, i32) {
             (0, 0, 1920)
         });
     let x = mx + (mw - island::WIN_W) / 2;
-    tracing::info!("placing pill at {x},{my} (monitor width {mw})");
+    tracing::info!("placing island for {connector} at {x},{my} (monitor width {mw})");
     (x, my)
 }
 
@@ -221,18 +247,5 @@ fn move_to(conn: &impl Connection, xid: u32, (x, y): (i32, i32)) {
     }
     if let Err(e) = conn.flush() {
         tracing::error!("X flush failed: {e}");
-    }
-}
-
-fn load_css() {
-    let provider = CssProvider::new();
-    provider.load_from_string(include_str!("style.css"));
-    match gdk::Display::default() {
-        Some(display) => gtk::style_context_add_provider_for_display(
-            &display,
-            &provider,
-            gtk::STYLE_PROVIDER_PRIORITY_APPLICATION,
-        ),
-        None => tracing::error!("no display; CSS not loaded"),
     }
 }

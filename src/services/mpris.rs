@@ -67,6 +67,7 @@ impl NowPlaying {
     }
 }
 
+#[derive(Clone)]
 pub enum Update {
     /// `None` means nothing is playing (or no player exists).
     Track(Option<NowPlaying>),

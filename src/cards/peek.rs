@@ -17,8 +17,10 @@ pub enum Kind {
     Bluetooth { audio: bool },
     Charging,
     Unplugged,
+    Water,
 }
 
+#[derive(Clone)]
 pub struct Peek {
     pub kind: Kind,
     pub title: String,
@@ -113,9 +115,10 @@ impl PeekCard {
 
     pub fn show(&self, peek: &Peek) {
         let (icon, color) = match peek.kind {
-            Kind::Bluetooth { .. } => ("atoll-bluetooth-symbolic", palette::LAVENDER),
-            Kind::Charging => ("atoll-bolt-symbolic", palette::PINK),
+            Kind::Bluetooth { .. } => ("atoll-bluetooth-symbolic", palette::lavender()),
+            Kind::Charging => ("atoll-bolt-symbolic", palette::pink()),
             Kind::Unplugged => ("atoll-unplugged-symbolic", palette::MUTED),
+            Kind::Water => ("atoll-drop-symbolic", palette::lavender()),
         };
         self.icon.set_icon_name(Some(icon));
         self.level

@@ -13,5 +13,12 @@
     <file preprocess="xml-stripblanks" alias="atoll-bolt-symbolic.svg">icons/scalable/actions/atoll-bolt-symbolic.svg</file>
     <file preprocess="xml-stripblanks" alias="atoll-unplugged-symbolic.svg">icons/scalable/actions/atoll-unplugged-symbolic.svg</file>
     <file preprocess="xml-stripblanks" alias="atoll-headphones-symbolic.svg">icons/scalable/actions/atoll-headphones-symbolic.svg</file>
+    <file preprocess="xml-stripblanks" alias="atoll-drop-symbolic.svg">icons/scalable/actions/atoll-drop-symbolic.svg</file>
+    <file preprocess="xml-stripblanks" alias="atoll-undo-symbolic.svg">icons/scalable/actions/atoll-undo-symbolic.svg</file>
+    <file preprocess="xml-stripblanks" alias="atoll-bell-symbolic.svg">icons/scalable/actions/atoll-bell-symbolic.svg</file>
+    <file preprocess="xml-stripblanks" alias="atoll-bell-off-symbolic.svg">icons/scalable/actions/atoll-bell-off-symbolic.svg</file>
+    <file preprocess="xml-stripblanks" alias="atoll-left-symbolic.svg">icons/scalable/actions/atoll-left-symbolic.svg</file>
+    <file preprocess="xml-stripblanks" alias="atoll-right-symbolic.svg">icons/scalable/actions/atoll-right-symbolic.svg</file>
+    <file preprocess="xml-stripblanks" alias="atoll-settings-symbolic.svg">icons/scalable/actions/atoll-settings-symbolic.svg</file>
   </gresource>
 </gresources>

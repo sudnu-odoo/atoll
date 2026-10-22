@@ -12,3 +12,10 @@ https://github.com/google/material-design-icons
 - atoll-bolt-symbolic.svg: `bolt` (filled)
 - atoll-unplugged-symbolic.svg: `power_off` (filled)
 - atoll-headphones-symbolic.svg: `headphones` (filled)
+- atoll-drop-symbolic.svg: `water_drop (filled)`
+- atoll-undo-symbolic.svg: `undo`
+- atoll-bell-symbolic.svg: `notifications (filled)`
+- atoll-bell-off-symbolic.svg: `notifications_off`
+- atoll-left-symbolic.svg: `chevron_left`
+- atoll-right-symbolic.svg: `chevron_right`
+- atoll-settings-symbolic.svg: `settings`

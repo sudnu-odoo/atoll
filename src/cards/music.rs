@@ -10,7 +10,7 @@ use gtk::{gdk, glib, Align, Button, Label, Orientation};
 
 use super::lyrics::LyricsView;
 use super::widgets::{Cover, Meter, Ring, TrackCell};
-use super::{every_minute, mmss};
+use super::{every_minute, live_clock, mmss};
 use crate::services::lyrics::Line;
 use crate::services::mpris::{Command, NowPlaying};
 
@@ -87,21 +87,21 @@ impl MusicCard {
         let ring = Ring::new(track.clone(), 14);
         let date = Label::builder().css_classes(["date"]).build();
         let time = Label::builder().css_classes(["clock"]).build();
+        // The meter rides with the time; the top-right corner belongs to
+        // the settings button.
+        let meter = Meter::new();
         let when = gtk::Box::builder().spacing(8).build();
         when.append(&ring.area);
         when.append(&date);
         when.append(&time);
-        let meter = Meter::new();
+        when.append(&meter.area);
         let top = gtk::CenterBox::builder()
             .css_classes(["card-top"])
             .hexpand(true)
             .center_widget(&when)
-            .end_widget(&meter.area)
             .build();
+        live_clock(&time, "%H:%M:%S");
         every_minute(move |now| {
-            if let Ok(s) = now.format("%H:%M") {
-                time.set_label(&s);
-            }
             if let Ok(s) = now.format("%a %d %b %Y") {
                 date.set_label(&s);
             }
@@ -352,6 +352,11 @@ impl MusicCard {
         toggle_class(&self.lyrics_button, "on", on);
         self.refresh();
         self.restart_ticker();
+    }
+
+    /// Lyrics switched off in settings: no button, no lookups.
+    pub fn set_lyrics_available(&self, available: bool) {
+        self.lyrics_button.set_visible(available);
     }
 
     pub fn set_pinned(&self, pinned: bool) {

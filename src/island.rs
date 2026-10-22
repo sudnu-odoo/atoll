@@ -11,16 +11,23 @@ use gtk::prelude::*;
 use gtk::{cairo, gdk, glib, Align, DrawingArea, Stack, StackTransitionType};
 
 use crate::cards::clock::{Collapsed, Idle};
+use crate::cards::control_button;
 use crate::cards::music::{Lyrics, MusicCard};
 use crate::cards::peek::{Peek, PeekCard};
+use crate::cards::water::WaterCard;
+use crate::config::Features;
 use crate::services::lyrics;
 use crate::services::mpris::{Command, Update};
+use crate::water;
 
 /// Body sizes (without the ears) for each state.
 pub const COLLAPSED: (f64, f64) = (200.0, 32.0);
-pub const EXPANDED_MUSIC: (f64, f64) = (520.0, 196.0);
-pub const EXPANDED_LYRICS: (f64, f64) = (820.0, 196.0);
-pub const EXPANDED_IDLE: (f64, f64) = (300.0, 118.0);
+// Expanded cards keep 40px each side (see style.css) for the page arrows.
+// Cards end ~10px above the bottom edge, leaving a strip for the page dots.
+pub const EXPANDED_MUSIC: (f64, f64) = (544.0, 206.0);
+pub const EXPANDED_LYRICS: (f64, f64) = (844.0, 206.0);
+pub const EXPANDED_WATER: (f64, f64) = (544.0, 206.0);
+pub const EXPANDED_IDLE: (f64, f64) = (340.0, 128.0);
 pub const PEEK: (f64, f64) = (400.0, 92.0);
 
 /// Inward-curving fillets at the top corners that melt the notch into the
@@ -35,6 +42,10 @@ const RADIUS_EXPANDED: f64 = 28.0;
 pub const WIN_W: i32 = EXPANDED_LYRICS.0 as i32 + 2 * EAR as i32;
 pub const WIN_H: i32 = EXPANDED_LYRICS.1 as i32;
 
+/// Height of the GNOME top bar: the notch area above this line can't be
+/// clicked (GNOME Shell takes the input), only looked at.
+const BAR_H: i32 = 32;
+
 const ANIM: Duration = Duration::from_millis(250);
 /// Grace period before collapsing, so brushing past the edge doesn't flicker.
 const COLLAPSE_DELAY: Duration = Duration::from_millis(300);
@@ -44,6 +55,25 @@ const PEEK_HOLD: Duration = Duration::from_millis(3500);
 /// A peek that arrives while the notch is open waits for it to close; after
 /// this long it's old news and is dropped.
 const PEEK_STALE: Duration = Duration::from_secs(6);
+
+/// Pointer events from the X thread, in island-window coordinates.
+pub enum Pointer {
+    Hover(bool),
+    /// A primary click on the notch, seen even where GTK can't see it (over
+    /// the GNOME bar).
+    Click(i32, i32),
+}
+
+/// Everything an island needs from the rest of the app: where to send user
+/// actions, and which features are switched on.
+#[derive(Clone)]
+pub struct Deps {
+    pub commands: async_channel::Sender<Command>,
+    pub lyrics_requests: async_channel::Sender<lyrics::Request>,
+    pub water_commands: async_channel::Sender<water::Command>,
+    pub open_settings: async_channel::Sender<()>,
+    pub features: Features,
+}
 
 /// Notch bounds in window coordinates (x, y, w, h), shared with the X event
 /// thread, which turns pointer positions into hover changes.
@@ -66,8 +96,16 @@ pub struct Island {
     pub root: gtk::Overlay,
     notch: DrawingArea,
     stack: Stack,
-    collapsed: Collapsed,
+    collapsed: Rc<Collapsed>,
     music: Rc<MusicCard>,
+    water: WaterCard,
+    features: Features,
+    /// Index into `pages()` of the expanded card being shown.
+    page: Cell<usize>,
+    prev: gtk::Button,
+    next: gtk::Button,
+    dots: gtk::Box,
+    gear: gtk::Button,
     peek: PeekCard,
     peek_timer: RefCell<Option<glib::SourceId>>,
     queued_peek: RefCell<Option<(Peek, std::time::Instant)>>,
@@ -93,35 +131,39 @@ pub struct Island {
 }
 
 impl Island {
-    pub fn new(
-        hit: HitRect,
-        commands: async_channel::Sender<Command>,
-        lyrics_requests: async_channel::Sender<lyrics::Request>,
-    ) -> Rc<Self> {
-        Rc::new_cyclic(|weak: &std::rc::Weak<Self>| {
-            let weak = weak.clone();
+    pub fn new(hit: HitRect, deps: Deps) -> Rc<Self> {
+        let island = Rc::new_cyclic(|weak: &std::rc::Weak<Self>| {
             let w = weak.clone();
             let on_lyrics = move || {
                 if let Some(island) = w.upgrade() {
                     island.toggle_lyrics();
                 }
             };
+            let w = weak.clone();
             let on_pin = move || {
-                if let Some(island) = weak.upgrade() {
+                if let Some(island) = w.upgrade() {
                     island.toggle_pin();
                 }
             };
-            Self::build(hit, commands, lyrics_requests, on_lyrics, on_pin)
-        })
+            Self::build(hit, deps, on_lyrics, on_pin)
+        });
+        island.connect_pager();
+        island
     }
 
     fn build(
         hit: HitRect,
-        commands: async_channel::Sender<Command>,
-        lyrics_requests: async_channel::Sender<lyrics::Request>,
+        deps: Deps,
         on_lyrics: impl Fn() + 'static,
         on_pin: impl Fn() + 'static,
     ) -> Self {
+        let Deps {
+            commands,
+            lyrics_requests,
+            water_commands,
+            open_settings,
+            features,
+        } = deps;
         let size = Rc::new(Cell::new(COLLAPSED));
         let notch = DrawingArea::builder()
             .content_width(WIN_W)
@@ -130,9 +172,11 @@ impl Island {
         let s = size.clone();
         notch.set_draw_func(move |_, cr, w, _| draw(cr, f64::from(w), s.get()));
 
-        let collapsed = Collapsed::new();
+        let collapsed = Collapsed::new(features.eyes);
         let music = MusicCard::new(commands, on_lyrics, on_pin);
+        music.set_lyrics_available(features.lyrics);
         let idle = Idle::new();
+        let water = WaterCard::new(water_commands);
 
         // Pages size to their own content, so the overlay never forces the
         // notch area bigger than the visible card.
@@ -146,13 +190,45 @@ impl Island {
         stack.add_named(&collapsed.root, Some("collapsed"));
         stack.add_named(&music.root, Some("music"));
         stack.add_named(&idle.root, Some("idle"));
+        stack.add_named(&water.root, Some("water"));
         let peek = PeekCard::new();
         stack.add_named(&peek.root, Some("peek"));
         stack.add_named(&gtk::Box::new(gtk::Orientation::Vertical, 0), Some("none"));
         stack.set_visible_child_name("collapsed");
 
+        // Page arrows and dots float over the card. They're separate overlay
+        // children (not one full-size layer) so they never block clicks on
+        // the card itself.
+        let prev = control_button(&["pager"], Some("atoll-left-symbolic"));
+        let next = control_button(&["pager"], Some("atoll-right-symbolic"));
+        let dots = gtk::Box::builder()
+            .css_classes(["dots"])
+            .spacing(5)
+            .halign(Align::Center)
+            .valign(Align::Start)
+            .can_target(false)
+            .build();
+        for (w, h) in [(&prev, Align::Start), (&next, Align::End)] {
+            w.set_halign(h);
+            w.set_valign(Align::Start);
+            w.set_visible(false);
+        }
+        dots.set_visible(false);
+        let gear = control_button(&["pager", "gear"], Some("atoll-settings-symbolic"));
+        gear.set_tooltip_text(Some("Atoll settings"));
+        gear.set_halign(Align::End);
+        gear.set_valign(Align::Start);
+        gear.set_visible(false);
+        gear.connect_clicked(move |_| {
+            let _ = open_settings.try_send(());
+        });
+
         let root = gtk::Overlay::builder().child(&notch).build();
         root.add_overlay(&stack);
+        root.add_overlay(&prev);
+        root.add_overlay(&next);
+        root.add_overlay(&dots);
+        root.add_overlay(&gear);
 
         let island = Self {
             root,
@@ -160,6 +236,13 @@ impl Island {
             stack,
             collapsed,
             music,
+            water,
+            features,
+            page: Cell::new(0),
+            prev,
+            next,
+            dots,
+            gear,
             state: Cell::new(State::Collapsed),
             has_music: Cell::new(false),
             size,
@@ -188,7 +271,30 @@ impl Island {
         island
     }
 
-    pub fn on_hover(self: &Rc<Self>, inside: bool) {
+    pub fn on_pointer(self: &Rc<Self>, event: Pointer) {
+        match event {
+            Pointer::Hover(inside) => self.on_hover(inside),
+            Pointer::Click(x, y) => self.on_click(x, f64::from(y)),
+        }
+    }
+
+    /// Handles clicks GTK may not have received: only the gear lives in the
+    /// bar area. On monitors without a bar GTK sees the click as well, and
+    /// opening settings twice just raises the window.
+    fn on_click(&self, x: i32, y: f64) {
+        if self.state.get() != State::Expanded || !self.gear.is_visible() {
+            return;
+        }
+        let Some(b) = self.gear.compute_bounds(&self.root) else {
+            return;
+        };
+        let x = f64::from(x) as f32;
+        if b.contains_point(&gtk::graphene::Point::new(x, y as f32)) {
+            self.gear.emit_clicked();
+        }
+    }
+
+    fn on_hover(self: &Rc<Self>, inside: bool) {
         self.hovered.set(inside);
         if let Some(id) = self.collapse_timer.take() {
             id.remove();
@@ -214,7 +320,14 @@ impl Island {
         self.collapse_timer.replace(Some(id));
     }
 
+    pub fn on_water(&self, view: &water::View) {
+        self.water.update(view);
+    }
+
     pub fn on_music(self: &Rc<Self>, update: Update) {
+        if !self.features.music {
+            return; // music switched off: behave as if nothing plays
+        }
         match update {
             Update::Track(Some(np)) => {
                 if self.art_url.borrow().as_ref() != np.art_url.as_ref() {
@@ -312,18 +425,120 @@ impl Island {
         }
     }
 
-    fn expanded_page(&self) -> (&'static str, (f64, f64)) {
+    /// Expanded cards in order: music (or the clock card when nothing
+    /// plays), then water.
+    fn pages(&self) -> Vec<(&'static str, (f64, f64))> {
+        let mut pages = Vec::new();
         if self.has_music.get() && self.lyrics_mode.get() {
-            ("music", EXPANDED_LYRICS)
+            pages.push(("music", EXPANDED_LYRICS));
         } else if self.has_music.get() {
-            ("music", EXPANDED_MUSIC)
+            pages.push(("music", EXPANDED_MUSIC));
         } else {
-            ("idle", EXPANDED_IDLE)
+            pages.push(("idle", EXPANDED_IDLE));
+        }
+        if self.features.water {
+            pages.push(("water", EXPANDED_WATER));
+        }
+        pages
+    }
+
+    fn expanded_page(&self) -> (&'static str, (f64, f64)) {
+        let pages = self.pages();
+        let i = self.page.get().min(pages.len() - 1);
+        pages[i]
+    }
+
+    /// Steps to the next/previous card, wrapping around.
+    fn go(self: &Rc<Self>, delta: isize) {
+        let n = self.pages().len();
+        if n < 2 || self.state.get() != State::Expanded || self.tick.borrow().is_some() {
+            return;
+        }
+        let i = (self.page.get().min(n - 1) as isize + delta).rem_euclid(n as isize);
+        self.page.set(i as usize);
+        self.expand();
+    }
+
+    fn connect_pager(self: &Rc<Self>) {
+        let weak = Rc::downgrade(self);
+        self.prev.connect_clicked(move |_| {
+            if let Some(i) = weak.upgrade() {
+                i.go(-1);
+            }
+        });
+        let weak = Rc::downgrade(self);
+        self.next.connect_clicked(move |_| {
+            if let Some(i) = weak.upgrade() {
+                i.go(1);
+            }
+        });
+        // Scrolling over the card flips pages too, like a carousel.
+        let scroll = gtk::EventControllerScroll::new(
+            gtk::EventControllerScrollFlags::BOTH_AXES | gtk::EventControllerScrollFlags::DISCRETE,
+        );
+        let weak = Rc::downgrade(self);
+        scroll.connect_scroll(move |_, dx, dy| {
+            let delta = if dx.abs() > dy.abs() { dx } else { dy };
+            if let Some(i) = weak.upgrade() {
+                if delta != 0.0 {
+                    i.go(if delta > 0.0 { 1 } else { -1 });
+                }
+            }
+            glib::Propagation::Stop
+        });
+        self.stack.add_controller(scroll);
+    }
+
+    /// Places the arrows and dots on the settled card, or hides them.
+    fn show_pager(&self, visible: bool) {
+        // The gear sits in the top-right corner of every expanded card. That
+        // is over the GNOME bar, so its clicks arrive via `on_click`.
+        self.gear.set_visible(visible);
+        if visible {
+            let w = self.expanded_page().1 .0;
+            // Same column as the › arrow below it.
+            self.gear.set_margin_end((WIN_W - w as i32) / 2 + 8);
+            // Centered on the cards' top row (16px padding + 26px row).
+            self.gear.set_margin_top(16);
+        }
+        let pages = self.pages();
+        let show = visible && pages.len() > 1;
+        self.prev.set_visible(show);
+        self.next.set_visible(show);
+        self.dots.set_visible(show);
+        if !show {
+            return;
+        }
+        let (w, h) = self.expanded_page().1;
+        let inset = (WIN_W - w as i32) / 2 + 8;
+        // Vertically centered on the part of the card below the GNOME bar,
+        // where clicks reach us.
+        let top = (BAR_H + h as i32) / 2 - 14;
+        self.prev.set_margin_start(inset);
+        self.prev.set_margin_top(top);
+        self.next.set_margin_end(inset);
+        self.next.set_margin_top(top);
+        self.dots.set_margin_top(h as i32 - 11);
+
+        while let Some(child) = self.dots.first_child() {
+            self.dots.remove(&child);
+        }
+        let current = self.page.get().min(pages.len() - 1);
+        for i in 0..pages.len() {
+            let dot = gtk::Box::builder()
+                .css_classes(if i == current {
+                    ["dot", "current"]
+                } else {
+                    ["dot", "other"]
+                })
+                .build();
+            self.dots.append(&dot);
         }
     }
 
     fn expand(self: &Rc<Self>) {
         self.state.set(State::Expanded);
+        self.show_pager(false);
         let (_, target) = self.expanded_page();
         self.set_bounds(target);
         self.show_page("none", false);
@@ -370,6 +585,9 @@ impl Island {
             return;
         }
         self.music.set_active(false);
+        self.show_pager(false);
+        // Next hover starts from the first card again.
+        self.page.set(0);
         self.set_bounds(COLLAPSED);
         self.show_page("none", false);
         self.animate_to(COLLAPSED);
@@ -393,6 +611,7 @@ impl Island {
                 let (page, _) = self.expanded_page();
                 self.show_page(page, true);
                 self.music.set_active(page == "music");
+                self.show_pager(true);
             }
         }
     }

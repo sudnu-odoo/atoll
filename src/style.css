@@ -7,13 +7,17 @@
 @define-color purple #BD93F9;
 @define-color muted #6272A4;
 
-/* Clear the theme's window background; the notch shape is drawn in island.rs. */
-window {
+/* Island windows only (not the settings window): clear the theme's
+   background; the notch shape is drawn in island.rs. */
+window.island {
   background: transparent;
   box-shadow: none;
 }
 
-window * {
+/* Set on the window and inherited, not with `window.island *`: a rule on
+   every widget would outrank (and silently undo) class colors such as
+   .lyric or .muted. */
+window.island {
   font-family: "Ubuntu";
   color: @text;
 }
@@ -46,7 +50,7 @@ window * {
 
 /* Expanded: nothing playing */
 .idle-card {
-  padding: 30px 24px 14px;
+  padding: 30px 40px 14px;
 }
 .big-clock {
   font-family: "JetBrainsMono Nerd Font Mono";
@@ -57,11 +61,15 @@ window * {
 .idle-card .caps { margin-top: 4px; }
 
 /* Expanded: music */
+/* 40px side padding leaves room for the page arrows. */
 .player {
-  padding: 16px 24px 12px;
+  padding: 16px 40px 12px;
 }
 .card-top {
   min-height: 26px;
+}
+.water-card .card-top {
+  margin-bottom: 4px;
 }
 .date {
   font-size: 13px;
@@ -99,15 +107,84 @@ window * {
   margin: 18px 0 16px;
   border-left: 1px solid alpha(@bg_raised, 0.9);
 }
+/* Strong contrast: the line being sung is big and bright, the others are
+   small and dim, so the eye lands on the current line at a glance. */
 .lyric {
-  font-size: 17px;
+  font-size: 16px;
   font-weight: 500;
-  color: alpha(@lavender, 0.45);
+  color: alpha(@lavender, 0.38);
 }
 .lyric-current {
-  font-size: 21px;
+  font-size: 25px;
   font-weight: 700;
   color: @text;
+}
+
+/* Water card */
+/* Same top padding as the music card, so every card's top row (and the
+   settings button centered on it) lines up. */
+.water-card {
+  padding: 16px 40px 14px;
+}
+.water-card > box:last-child {
+  margin-top: 10px;
+}
+.water-icon {
+  -gtk-icon-size: 13px;
+  color: @lavender;
+}
+.water-amount {
+  font-size: 34px;
+  font-weight: 700;
+}
+.water-goal {
+  font-size: 15px;
+  color: @muted;
+}
+.water-actions {
+  margin-top: 6px;
+}
+button.control.pill {
+  min-height: 34px;
+  padding: 0 16px;
+  border-radius: 999px;
+  -gtk-icon-size: 15px;
+  font-weight: 500;
+}
+button.control.primary-pill {
+  background-color: alpha(@pink, 0.22);
+  color: @pink;
+}
+button.control.primary-pill:hover {
+  background-color: alpha(@pink, 0.32);
+}
+button.control.primary-pill label,
+button.control.primary-pill image {
+  color: inherit;
+}
+button.control:disabled {
+  opacity: 0.35;
+}
+
+/* Page arrows and dots */
+button.control.pager {
+  min-width: 26px;
+  min-height: 26px;
+  -gtk-icon-size: 18px;
+  background-color: alpha(@bg_raised, 0.6);
+  color: @lavender;
+}
+.dots .dot {
+  min-height: 4px;
+  border-radius: 2px;
+}
+.dots .dot.current {
+  min-width: 14px;
+  background-color: @text;
+}
+.dots .dot.other {
+  min-width: 4px;
+  background-color: alpha(@lavender, 0.4);
 }
 
 /* Peeks: short notifications (bluetooth, charger). */
@@ -213,4 +290,62 @@ button.control image {
 }
 button.control.primary:hover {
   background-color: @lavender;
+}
+
+/* Settings window: a normal window, styled to match the desktop. */
+window.settings {
+  background-color: @bg;
+}
+window.settings label {
+  font-family: "Ubuntu";
+  color: @text;
+}
+.settings-page {
+  padding: 24px 24px 28px;
+}
+.settings-section {
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 2px;
+  color: @lavender;
+  margin-left: 4px;
+}
+.settings-card {
+  background-color: alpha(@bg_raised, 0.45);
+  border-radius: 14px;
+}
+.settings-row {
+  padding: 12px 16px;
+  min-height: 36px;
+}
+.settings-card > *:not(:last-child),
+.settings-sub > *:not(:last-child) {
+  border-bottom: 1px solid alpha(@bg_raised, 0.9);
+}
+.settings-title {
+  font-size: 14px;
+}
+window.settings .settings-subtitle {
+  font-size: 12px;
+  color: @muted;
+}
+window.settings .settings-hint {
+  font-size: 11px;
+  color: @muted;
+  margin: 0 4px;
+}
+window.settings switch:checked {
+  background-color: @pink;
+}
+window.settings button.preset {
+  padding: 4px 12px;
+  border-radius: 999px;
+  font-size: 12px;
+}
+.settings-sub {
+  background-color: alpha(@bg, 0.55);
+  border-top: 1px solid alpha(@bg_raised, 0.9);
+}
+.settings-sub .settings-row {
+  padding-left: 32px;
 }

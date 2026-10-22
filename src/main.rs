@@ -1,8 +1,13 @@
 mod app;
 mod cards;
+mod config;
 mod island;
 mod palette;
 mod services;
+mod settings;
+mod store;
+mod theme;
+mod water;
 mod window;
 
 use gtk::prelude::*;
@@ -35,8 +40,20 @@ fn main() -> glib::ExitCode {
         tracing::warn!("bundled icons unavailable: {e}");
     }
 
-    let app = Application::builder().application_id(APP_ID).build();
+    // Launching `atoll` again (e.g. `atoll --settings`) forwards the command
+    // line to the running instance instead of starting a second island.
+    let app = Application::builder()
+        .application_id(APP_ID)
+        .flags(gio::ApplicationFlags::HANDLES_COMMAND_LINE)
+        .build();
     app.connect_activate(app::build);
+    app.connect_command_line(|app, cmdline| {
+        app.activate();
+        if cmdline.arguments().iter().any(|a| a == "--settings") {
+            app::open_settings();
+        }
+        glib::ExitCode::SUCCESS
+    });
     watch_signals();
     app.run()
 }
