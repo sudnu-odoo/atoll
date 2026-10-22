@@ -1,3 +1,4 @@
+pub mod claude;
 pub mod clock;
 pub mod lyrics;
 pub mod music;

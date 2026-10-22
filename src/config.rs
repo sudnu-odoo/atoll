@@ -26,6 +26,8 @@ pub struct Features {
     pub water: bool,
     pub bluetooth_peek: bool,
     pub charging_peek: bool,
+    /// Claude Code prompts and peeks (needs the hooks installed).
+    pub claude: bool,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -60,6 +62,7 @@ impl Default for Features {
             water: true,
             bluetooth_peek: true,
             charging_peek: true,
+            claude: true,
         }
     }
 }

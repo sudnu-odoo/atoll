@@ -10,14 +10,15 @@ use std::time::Duration;
 use gtk::prelude::*;
 use gtk::{cairo, gdk, glib, Align, DrawingArea, Stack, StackTransitionType};
 
+use crate::cards::claude::ClaudeCard;
 use crate::cards::clock::{Collapsed, Idle};
 use crate::cards::control_button;
 use crate::cards::music::{Lyrics, MusicCard};
 use crate::cards::peek::{Peek, PeekCard};
 use crate::cards::water::WaterCard;
 use crate::config::Features;
-use crate::services::lyrics;
 use crate::services::mpris::{Command, Update};
+use crate::services::{claude, lyrics};
 use crate::water;
 
 /// Body sizes (without the ears) for each state.
@@ -28,6 +29,10 @@ pub const EXPANDED_MUSIC: (f64, f64) = (544.0, 206.0);
 pub const EXPANDED_LYRICS: (f64, f64) = (844.0, 206.0);
 pub const EXPANDED_WATER: (f64, f64) = (544.0, 206.0);
 pub const EXPANDED_IDLE: (f64, f64) = (340.0, 128.0);
+/// Claude prompts: fixed width, height grows with the content up to
+/// CLAUDE_MAX_H (long questions, many options).
+pub const EXPANDED_CLAUDE: (f64, f64) = (600.0, 206.0);
+pub const CLAUDE_MAX_H: f64 = 360.0;
 pub const PEEK: (f64, f64) = (400.0, 92.0);
 
 /// Inward-curving fillets at the top corners that melt the notch into the
@@ -40,7 +45,7 @@ const RADIUS_EXPANDED: f64 = 28.0;
 /// The window is fixed at the largest size; only the notch inside changes,
 /// because resizing an override-redirect GTK window races with GTK itself.
 pub const WIN_W: i32 = EXPANDED_LYRICS.0 as i32 + 2 * EAR as i32;
-pub const WIN_H: i32 = EXPANDED_LYRICS.1 as i32;
+pub const WIN_H: i32 = CLAUDE_MAX_H as i32;
 
 /// Height of the GNOME top bar: the notch area above this line can't be
 /// clicked (GNOME Shell takes the input), only looked at.
@@ -72,6 +77,7 @@ pub struct Deps {
     pub lyrics_requests: async_channel::Sender<lyrics::Request>,
     pub water_commands: async_channel::Sender<water::Command>,
     pub open_settings: async_channel::Sender<()>,
+    pub claude_answers: async_channel::Sender<claude::Reply>,
     pub features: Features,
 }
 
@@ -84,6 +90,9 @@ enum State {
     Collapsed,
     Expanded,
     Peek,
+    /// A Claude Code prompt is waiting: open on its own, and stays open
+    /// until answered or timed out, whatever the pointer does.
+    Claude,
 }
 
 struct Anim {
@@ -99,6 +108,7 @@ pub struct Island {
     collapsed: Rc<Collapsed>,
     music: Rc<MusicCard>,
     water: WaterCard,
+    claude: Rc<ClaudeCard>,
     features: Features,
     /// Index into `pages()` of the expanded card being shown.
     page: Cell<usize>,
@@ -148,6 +158,15 @@ impl Island {
             Self::build(hit, deps, on_lyrics, on_pin)
         });
         island.connect_pager();
+        // Next question in a multi-question prompt: refit the notch.
+        let weak = Rc::downgrade(&island);
+        island.claude.set_on_layout(move || {
+            if let Some(i) = weak.upgrade() {
+                if i.state.get() == State::Claude {
+                    i.fit_claude();
+                }
+            }
+        });
         island
     }
 
@@ -162,6 +181,7 @@ impl Island {
             lyrics_requests,
             water_commands,
             open_settings,
+            claude_answers,
             features,
         } = deps;
         let size = Rc::new(Cell::new(COLLAPSED));
@@ -177,6 +197,7 @@ impl Island {
         music.set_lyrics_available(features.lyrics);
         let idle = Idle::new();
         let water = WaterCard::new(water_commands);
+        let claude = ClaudeCard::new(claude_answers);
 
         // Pages size to their own content, so the overlay never forces the
         // notch area bigger than the visible card.
@@ -191,6 +212,7 @@ impl Island {
         stack.add_named(&music.root, Some("music"));
         stack.add_named(&idle.root, Some("idle"));
         stack.add_named(&water.root, Some("water"));
+        stack.add_named(&claude.root, Some("claude"));
         let peek = PeekCard::new();
         stack.add_named(&peek.root, Some("peek"));
         stack.add_named(&gtk::Box::new(gtk::Orientation::Vertical, 0), Some("none"));
@@ -237,6 +259,7 @@ impl Island {
             collapsed,
             music,
             water,
+            claude,
             features,
             page: Cell::new(0),
             prev,
@@ -296,6 +319,9 @@ impl Island {
 
     fn on_hover(self: &Rc<Self>, inside: bool) {
         self.hovered.set(inside);
+        if self.state.get() == State::Claude {
+            return; // a prompt holds the notch open regardless
+        }
         if let Some(id) = self.collapse_timer.take() {
             id.remove();
         }
@@ -547,8 +573,45 @@ impl Island {
 
     /// Shows a short notification, then folds back. Never interrupts an
     /// open card: it waits until the notch closes.
+    /// Shows a Claude prompt (`Some`) or clears it (`None`: answered,
+    /// timed out, or answered on another monitor).
+    pub fn on_claude(self: &Rc<Self>, request: Option<&claude::Request>) {
+        if let Some(r) = request {
+            if let Some(id) = self.collapse_timer.take() {
+                id.remove();
+            }
+            self.cancel_peek_timer();
+            self.music.set_active(false);
+            self.show_pager(false);
+            self.state.set(State::Claude);
+            self.claude.show(r);
+            self.fit_claude();
+            return;
+        }
+        if self.state.get() != State::Claude {
+            return;
+        }
+        self.claude.stop();
+        if self.hovered.get() {
+            self.expand(); // still under the pointer: back to the normal card
+        } else {
+            self.state.set(State::Expanded);
+            self.collapse();
+        }
+    }
+
+    /// Sizes the notch to the prompt's content.
+    fn fit_claude(self: &Rc<Self>) {
+        let h =
+            f64::from(self.claude.natural_height()).clamp(EXPANDED_CLAUDE.1 * 0.75, CLAUDE_MAX_H);
+        let size = (EXPANDED_CLAUDE.0, h);
+        self.set_bounds(size);
+        self.show_page("none", false);
+        self.animate_to(size);
+    }
+
     pub fn on_peek(self: &Rc<Self>, peek: Peek) {
-        if self.state.get() == State::Expanded {
+        if matches!(self.state.get(), State::Expanded | State::Claude) {
             self.queued_peek
                 .replace(Some((peek, std::time::Instant::now())));
             return;
@@ -607,6 +670,7 @@ impl Island {
                 }
             }
             State::Peek => self.show_page("peek", true),
+            State::Claude => self.show_page("claude", true),
             State::Expanded => {
                 let (page, _) = self.expanded_page();
                 self.show_page(page, true);

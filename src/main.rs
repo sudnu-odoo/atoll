@@ -1,6 +1,7 @@
 mod app;
 mod cards;
 mod config;
+mod hook;
 mod island;
 mod palette;
 mod services;
@@ -18,6 +19,14 @@ use signal_hook::iterator::Signals;
 const APP_ID: &str = "dev.atoll.Atoll";
 
 fn main() -> glib::ExitCode {
+    // `atoll hook <event>` is Claude Code's hook helper: no GTK, and no
+    // logging, because stdout carries the JSON answer back to Claude Code.
+    let args: Vec<String> = std::env::args().collect();
+    if args.get(1).map(String::as_str) == Some("hook") {
+        hook::run(args.get(2).map_or("", String::as_str));
+        return glib::ExitCode::SUCCESS;
+    }
+
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()

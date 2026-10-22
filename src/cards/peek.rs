@@ -18,6 +18,7 @@ pub enum Kind {
     Charging,
     Unplugged,
     Water,
+    Claude,
 }
 
 #[derive(Clone)]
@@ -60,15 +61,19 @@ impl PeekCard {
             .build();
         ring.add_overlay(&icon);
 
+        // Capped widths: an ellipsizing label still *asks* for its full
+        // text width, which would stretch the card past the notch outline.
         let title = Label::builder()
             .css_classes(["peek-title"])
             .xalign(0.0)
             .ellipsize(gtk::pango::EllipsizeMode::End)
+            .max_width_chars(28)
             .build();
         let subtitle = Label::builder()
             .css_classes(["peek-subtitle"])
             .xalign(0.0)
             .ellipsize(gtk::pango::EllipsizeMode::End)
+            .max_width_chars(40)
             .build();
         let text = gtk::Box::builder()
             .orientation(Orientation::Vertical)
@@ -119,10 +124,13 @@ impl PeekCard {
             Kind::Charging => ("atoll-bolt-symbolic", palette::pink()),
             Kind::Unplugged => ("atoll-unplugged-symbolic", palette::MUTED),
             Kind::Water => ("atoll-drop-symbolic", palette::lavender()),
+            Kind::Claude => ("atoll-claude-symbolic", palette::pink()),
         };
         self.icon.set_icon_name(Some(icon));
-        self.level
-            .set(peek.percent.map(|p| ((p / 100.0).clamp(0.0, 1.0), color)));
+        // No level (e.g. Claude): a full ring, so it reads as a badge
+        // rather than an empty gauge.
+        let fraction = peek.percent.map_or(1.0, |p| (p / 100.0).clamp(0.0, 1.0));
+        self.level.set(Some((fraction, color)));
         self.gauge.queue_draw();
         self.title.set_label(&peek.title);
         self.subtitle.set_label(&peek.subtitle);

@@ -2,7 +2,7 @@
 //! every service update out to all islands.
 
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -13,7 +13,7 @@ use gtk::{gdk, gio, glib, Application, ApplicationWindow};
 use crate::cards::peek::{Kind, Peek};
 use crate::config::Config;
 use crate::island::{self, Island};
-use crate::services::{bluez, lyrics, mpris, upower};
+use crate::services::{bluez, claude, lyrics, mpris, upower};
 use crate::{settings, theme, water, window};
 
 /// A dock connect fires several monitor changes in a row; act once it settles.
@@ -30,6 +30,11 @@ struct Hub {
     last_track: RefCell<Option<mpris::Update>>,
     last_art: RefCell<Option<mpris::Update>>,
     settle: RefCell<Option<glib::SourceId>>,
+    /// Claude prompts waiting their turn, and the one on screen (with its
+    /// timeout).
+    claude_queue: RefCell<VecDeque<claude::Incoming>>,
+    claude_current: RefCell<Option<(claude::Incoming, glib::SourceId)>>,
+    claude_watch: RefCell<Option<glib::SourceId>>,
 }
 
 thread_local! {
@@ -59,6 +64,9 @@ pub fn build(app: &Application) {
     let (bt_tx, bt_rx) = async_channel::unbounded();
     let (water_tx, water_rx) = async_channel::unbounded();
     let (settings_tx, settings_rx) = async_channel::unbounded();
+    let (claude_tx, claude_rx) = async_channel::unbounded();
+    let (answer_tx, answer_rx) = async_channel::unbounded();
+    claude::spawn(claude_tx);
     // Services always run (they idle on D-Bus signals at no cost); whether
     // their output is shown is decided per event, so toggling a feature in
     // settings takes effect immediately.
@@ -73,6 +81,7 @@ pub fn build(app: &Application) {
             lyrics_requests: lyrics::spawn(lyrics_tx),
             water_commands: water_tx,
             open_settings: settings_tx,
+            claude_answers: answer_tx,
             features: config.features.clone(),
         }),
         water: RefCell::default(),
@@ -81,6 +90,9 @@ pub fn build(app: &Application) {
         last_track: RefCell::default(),
         last_art: RefCell::default(),
         settle: RefCell::default(),
+        claude_queue: RefCell::default(),
+        claude_current: RefCell::default(),
+        claude_watch: RefCell::default(),
     });
     HUB.with(|h| h.replace(Some(hub.clone())));
 
@@ -159,6 +171,10 @@ pub fn build(app: &Application) {
             h.each(|i| i.on_peek(peek.clone()));
         }
     });
+    let h = hub.clone();
+    forward(claude_rx, move |incoming| h.on_claude(incoming));
+    let h = hub.clone();
+    forward(answer_rx, move |reply| h.answer_claude(reply));
     forward(settings_rx, move |()| hub.open_settings());
 }
 
@@ -172,6 +188,97 @@ fn forward<T: 'static>(rx: async_channel::Receiver<T>, f: impl Fn(T) + 'static) 
 }
 
 impl Hub {
+    fn on_claude(self: &Rc<Self>, incoming: claude::Incoming) {
+        // Switched off: dropping the request (no reply) leaves Claude Code
+        // to show its own prompt.
+        if !self.config.borrow().features.claude {
+            return;
+        }
+        match &incoming.request {
+            claude::Request::Finished { message, project } => {
+                let peek = claude_peek("Claude finished", message, project);
+                self.each(|i| i.on_peek(peek.clone()));
+            }
+            claude::Request::Waiting { message, project } => {
+                let peek = claude_peek("Claude is waiting for you", message, project);
+                self.each(|i| i.on_peek(peek.clone()));
+            }
+            _ => {
+                self.claude_queue.borrow_mut().push_back(incoming);
+                if self.claude_current.borrow().is_none() {
+                    self.next_claude();
+                }
+            }
+        }
+    }
+
+    /// Puts the next queued prompt on every island.
+    fn next_claude(self: &Rc<Self>) {
+        let Some(incoming) = self.claude_queue.borrow_mut().pop_front() else {
+            self.each(|i| i.on_claude(None));
+            return;
+        };
+        // The helper may have given up while queued (user answered in the
+        // terminal); then the reply channel is closed and there's no point.
+        if incoming.reply.is_closed() {
+            self.next_claude();
+            return;
+        }
+        let request = incoming.request.clone();
+        let weak = Rc::downgrade(self);
+        let timeout = glib::timeout_add_local_once(claude::ANSWER_TIMEOUT, move || {
+            if let Some(hub) = weak.upgrade() {
+                // Unanswered: drop it without a reply.
+                if let Some((_, _)) = hub.claude_current.take() {
+                    hub.next_claude();
+                }
+            }
+        });
+        self.claude_current.replace(Some((incoming, timeout)));
+        self.each(|i| i.on_claude(Some(&request)));
+        self.watch_claude();
+    }
+
+    /// While a prompt is up, notices when its hook went away (answered in
+    /// the terminal or VS Code) and moves on. Runs only during a prompt.
+    fn watch_claude(self: &Rc<Self>) {
+        if let Some(old) = self.claude_watch.take() {
+            old.remove();
+        }
+        let weak = Rc::downgrade(self);
+        let id = glib::timeout_add_local(Duration::from_millis(400), move || {
+            let Some(hub) = weak.upgrade() else {
+                return glib::ControlFlow::Break;
+            };
+            let gone = match hub.claude_current.borrow().as_ref() {
+                Some((incoming, _)) => incoming.reply.is_closed(),
+                None => {
+                    hub.claude_watch.take();
+                    return glib::ControlFlow::Break;
+                }
+            };
+            if gone {
+                hub.claude_watch.take();
+                if let Some((_, timeout)) = hub.claude_current.take() {
+                    timeout.remove();
+                }
+                hub.next_claude();
+                return glib::ControlFlow::Break;
+            }
+            glib::ControlFlow::Continue
+        });
+        self.claude_watch.replace(Some(id));
+    }
+
+    fn answer_claude(self: &Rc<Self>, reply: claude::Reply) {
+        let Some((incoming, timeout)) = self.claude_current.take() else {
+            return;
+        };
+        timeout.remove();
+        let _ = incoming.reply.try_send(reply);
+        self.next_claude();
+    }
+
     fn open_settings(self: &Rc<Self>) {
         if let Some(window) = self.settings.borrow().as_ref().and_then(|w| w.upgrade()) {
             window.present();
@@ -286,6 +393,9 @@ impl Hub {
         let (hover_tx, hover_rx) = async_channel::unbounded();
         let window = window::show(&self.app, &island.root, connector.to_owned(), hit, hover_tx)?;
 
+        if let Some((incoming, _)) = self.claude_current.borrow().as_ref() {
+            island.on_claude(Some(&incoming.request));
+        }
         if let Some(view) = self.water.borrow().as_ref().and_then(|w| w.view()) {
             island.on_water(&view);
         }
@@ -342,5 +452,19 @@ fn redraw_all(widget: &gtk::Widget) {
     while let Some(c) = child {
         redraw_all(&c);
         child = c.next_sibling();
+    }
+}
+
+fn claude_peek(title: &str, message: &str, project: &str) -> Peek {
+    let subtitle = match (project.is_empty(), message.is_empty()) {
+        (false, false) => format!("{project} · {message}"),
+        (false, true) => project.to_owned(),
+        _ => message.to_owned(),
+    };
+    Peek {
+        kind: Kind::Claude,
+        title: title.into(),
+        subtitle,
+        percent: None,
     }
 }

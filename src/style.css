@@ -349,3 +349,73 @@ window.settings button.preset {
 .settings-sub .settings-row {
   padding-left: 32px;
 }
+
+/* Claude prompts */
+.claude-card {
+  padding: 16px 40px 14px;
+}
+.claude-card > box:last-child {
+  margin-top: 8px;
+}
+.claude-icon {
+  -gtk-icon-size: 13px;
+  color: @pink;
+}
+.claude-title {
+  font-size: 16px;
+  font-weight: 500;
+}
+.chip {
+  padding: 3px 10px;
+  border-radius: 999px;
+  background-color: alpha(@bg_raised, 0.8);
+  color: @lavender;
+  font-size: 12px;
+  -gtk-icon-size: 13px;
+}
+.chip image {
+  color: inherit;
+}
+.claude-command {
+  border-radius: 10px;
+  background-color: alpha(@bg_raised, 0.5);
+}
+.claude-command-text {
+  font-family: "JetBrainsMono Nerd Font Mono";
+  font-size: 13px;
+  padding: 8px 12px;
+}
+/* Option list: rows with a label and its description. */
+.option-list {
+  border-radius: 12px;
+  background-color: alpha(@bg_raised, 0.35);
+}
+.option-list > *:not(:last-child) {
+  border-bottom: 1px solid alpha(@bg_raised, 0.9);
+}
+button.option-row {
+  padding: 8px 14px;
+  border: none;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+  transition: background-color 120ms ease-out;
+}
+.option-list > button.option-row:first-child { border-radius: 12px 12px 0 0; }
+.option-list > button.option-row:last-child { border-radius: 0 0 12px 12px; }
+button.option-row:hover,
+button.option-row:checked {
+  background-color: alpha(@pink, 0.16);
+}
+.option-label {
+  font-size: 14px;
+  font-weight: 500;
+}
+button.option-row:hover .option-label,
+button.option-row:checked .option-label {
+  color: @pink;
+}
+.option-description {
+  font-size: 12px;
+  color: @muted;
+}

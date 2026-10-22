@@ -239,6 +239,14 @@ fn features_section(state: &Rc<RefCell<Config>>, on_change: &OnChange) -> gtk::B
             |c| c.features.charging_peek,
             |c, v| c.features.charging_peek = v,
         ),
+        switch(
+            state,
+            on_change,
+            "Claude",
+            "Answer Claude Code prompts from the notch (needs the hooks installed)",
+            |c| c.features.claude,
+            |c, v| c.features.claude = v,
+        ),
     ];
     section("Features", &rows)
 }

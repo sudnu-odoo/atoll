@@ -20,5 +20,9 @@
     <file preprocess="xml-stripblanks" alias="atoll-left-symbolic.svg">icons/scalable/actions/atoll-left-symbolic.svg</file>
     <file preprocess="xml-stripblanks" alias="atoll-right-symbolic.svg">icons/scalable/actions/atoll-right-symbolic.svg</file>
     <file preprocess="xml-stripblanks" alias="atoll-settings-symbolic.svg">icons/scalable/actions/atoll-settings-symbolic.svg</file>
+    <file preprocess="xml-stripblanks" alias="atoll-claude-symbolic.svg">icons/scalable/actions/atoll-claude-symbolic.svg</file>
+    <file preprocess="xml-stripblanks" alias="atoll-terminal-symbolic.svg">icons/scalable/actions/atoll-terminal-symbolic.svg</file>
+    <file preprocess="xml-stripblanks" alias="atoll-check-symbolic.svg">icons/scalable/actions/atoll-check-symbolic.svg</file>
+    <file preprocess="xml-stripblanks" alias="atoll-close-symbolic.svg">icons/scalable/actions/atoll-close-symbolic.svg</file>
   </gresource>
 </gresources>

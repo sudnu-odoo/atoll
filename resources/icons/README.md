@@ -19,3 +19,7 @@ https://github.com/google/material-design-icons
 - atoll-left-symbolic.svg: `chevron_left`
 - atoll-right-symbolic.svg: `chevron_right`
 - atoll-settings-symbolic.svg: `settings`
+- atoll-claude-symbolic.svg: `auto_awesome (filled)`
+- atoll-terminal-symbolic.svg: `terminal`
+- atoll-check-symbolic.svg: `check`
+- atoll-close-symbolic.svg: `close`
