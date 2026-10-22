@@ -3,6 +3,7 @@ pub mod clock;
 pub mod lyrics;
 pub mod music;
 pub mod peek;
+pub mod todo;
 pub mod water;
 pub mod widgets;
 

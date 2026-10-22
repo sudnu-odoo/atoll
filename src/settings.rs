@@ -242,6 +242,38 @@ fn features_section(state: &Rc<RefCell<Config>>, on_change: &OnChange) -> gtk::B
         switch(
             state,
             on_change,
+            "To-do",
+            "Today's tasks; tick them off from the notch",
+            |c| c.features.todo,
+            |c, v| c.features.todo = v,
+        ),
+        feature(
+            switch_with(
+                state,
+                on_change,
+                "Command finished",
+                "Peek when a long terminal command ends (not ones you stop yourself)",
+                |c| c.features.command_peek,
+                |c, v| c.features.command_peek = v,
+            ),
+            &[row(
+                "Minimum duration",
+                "Seconds a command must run to count",
+                &{
+                    let s = gtk::SpinButton::with_range(3.0, 600.0, 1.0);
+                    s.set_value(f64::from(state.borrow().commands.min_seconds));
+                    let (st, oc) = (state.clone(), on_change.clone());
+                    s.connect_value_changed(move |s| {
+                        let v = s.value() as u32;
+                        changer(&st, &oc, move |c| c.commands.min_seconds = v)();
+                    });
+                    s
+                },
+            )],
+        ),
+        switch(
+            state,
+            on_change,
             "Claude",
             "Answer Claude Code prompts from the notch (needs the hooks installed)",
             |c| c.features.claude,

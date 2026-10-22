@@ -14,10 +14,115 @@ use serde_json::{json, Value};
 
 use crate::services::claude::{self, Question, Reply, Request};
 
-pub fn run(event: &str) {
+pub fn run(event: &str, args: &[String]) {
+    // The shell integration passes its data as arguments, not JSON.
+    if event == "command" {
+        command_done(args);
+        return;
+    }
     if let Some(output) = handle(event) {
         println!("{output}");
     }
+}
+
+/// Programs that run until the user closes them: "finishing" is not news.
+const INTERACTIVE: &[&str] = &[
+    "vim",
+    "nvim",
+    "vi",
+    "nano",
+    "emacs",
+    "micro",
+    "hx",
+    "less",
+    "more",
+    "most",
+    "man",
+    "top",
+    "htop",
+    "btop",
+    "watch",
+    "ssh",
+    "mosh",
+    "tmux",
+    "screen",
+    "python",
+    "python3",
+    "ipython",
+    "node",
+    "irb",
+    "psql",
+    "mysql",
+    "sqlite3",
+    "gdb",
+    "lldb",
+    "rust-gdb",
+    "rust-lldb",
+    "pdb",
+    "bash",
+    "zsh",
+    "fish",
+    "sh",
+    "journalctl",
+    "tail",
+    "code",
+    "claude",
+    "fzf",
+    "lazygit",
+    "tig",
+    "ranger",
+    "nnn",
+    "mc",
+];
+/// Exit codes from signals the user sent themselves (Ctrl+C, kill, Ctrl+\).
+const USER_STOPPED: &[i32] = &[130, 131, 137, 143];
+
+/// `atoll hook command <status> <start-epoch> <command> <pwd>`: called by
+/// the shell after every command; only long, non-interactive commands that
+/// weren't stopped by the user become a peek.
+fn command_done(args: &[String]) {
+    let (Some(status), Some(start), Some(command), Some(pwd)) = (
+        args.first().and_then(|s| s.parse::<i32>().ok()),
+        args.get(1).and_then(|s| s.parse::<u64>().ok()),
+        args.get(2),
+        args.get(3),
+    ) else {
+        return;
+    };
+    let Ok(now) = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH) else {
+        return;
+    };
+    let seconds = now.as_secs().saturating_sub(start);
+    // Runs after every shell command: reject the many quick ones before
+    // touching the settings file.
+    if seconds < 3 {
+        return;
+    }
+    let min = u64::from(crate::config::Config::load_quiet().commands.min_seconds);
+    if seconds < min || USER_STOPPED.contains(&status) || is_interactive(command) {
+        return;
+    }
+    let project = Path::new(pwd)
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let _ = exchange(&Request::CommandDone {
+        command: command.trim().to_owned(),
+        status,
+        seconds,
+        project,
+    });
+}
+
+/// The program actually run, past `sudo`, env assignments and the like.
+fn is_interactive(command: &str) -> bool {
+    let program = command
+        .split_whitespace()
+        .find(|w| !w.contains('=') && !matches!(*w, "sudo" | "time" | "nice" | "env" | "exec"))
+        .map(|w| w.rsplit('/').next().unwrap_or(w))
+        .unwrap_or("");
+    // `tail -f`/`journalctl -f` follow forever; plain `tail` is quick anyway.
+    INTERACTIVE.contains(&program)
 }
 
 fn handle(event: &str) -> Option<Value> {

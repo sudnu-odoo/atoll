@@ -6,8 +6,10 @@ mod island;
 mod palette;
 mod services;
 mod settings;
+mod shell;
 mod store;
 mod theme;
+mod todo;
 mod water;
 mod window;
 
@@ -22,8 +24,15 @@ fn main() -> glib::ExitCode {
     // `atoll hook <event>` is Claude Code's hook helper: no GTK, and no
     // logging, because stdout carries the JSON answer back to Claude Code.
     let args: Vec<String> = std::env::args().collect();
+    if args.get(1).map(String::as_str) == Some("shell-init") {
+        shell::print_init();
+        return glib::ExitCode::SUCCESS;
+    }
     if args.get(1).map(String::as_str) == Some("hook") {
-        hook::run(args.get(2).map_or("", String::as_str));
+        hook::run(
+            args.get(2).map_or("", String::as_str),
+            args.get(3..).unwrap_or(&[]),
+        );
         return glib::ExitCode::SUCCESS;
     }
 

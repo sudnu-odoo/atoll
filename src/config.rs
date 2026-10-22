@@ -14,6 +14,20 @@ pub struct Config {
     pub features: Features,
     pub theme: Theme,
     pub water: Water,
+    pub commands: Commands,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Commands {
+    /// Only commands that ran at least this long get a peek.
+    pub min_seconds: u32,
+}
+
+impl Default for Commands {
+    fn default() -> Self {
+        Self { min_seconds: 15 }
+    }
 }
 
 /// Each feature can be switched off; its card or peek then never appears.
@@ -28,6 +42,9 @@ pub struct Features {
     pub charging_peek: bool,
     /// Claude Code prompts and peeks (needs the hooks installed).
     pub claude: bool,
+    pub todo: bool,
+    /// Peek when a long terminal command finishes (needs the shell line).
+    pub command_peek: bool,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -63,6 +80,8 @@ impl Default for Features {
             bluetooth_peek: true,
             charging_peek: true,
             claude: true,
+            todo: true,
+            command_peek: true,
         }
     }
 }
@@ -114,6 +133,15 @@ impl Config {
         }
     }
 
+    /// Like `load`, but never creates the file or logs: for the hook helper,
+    /// which runs after every shell command and must stay silent.
+    pub fn load_quiet() -> Self {
+        store::config_file(FILE)
+            .and_then(|p| store::read::<Self>(&p).ok().flatten())
+            .map(Self::sanitized)
+            .unwrap_or_default()
+    }
+
     pub fn save(&self) {
         let Some(path) = store::config_file(FILE) else {
             return;
@@ -138,6 +166,7 @@ impl Config {
         w.remind_every_min = w.remind_every_min.clamp(10, 600);
         w.active_from_hour = w.active_from_hour.min(23);
         w.active_to_hour = w.active_to_hour.clamp(w.active_from_hour + 1, 24);
+        self.commands.min_seconds = self.commands.min_seconds.clamp(3, 3600);
         self
     }
 }

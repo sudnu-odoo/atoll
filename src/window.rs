@@ -7,7 +7,8 @@ use x11rb::connection::Connection;
 use x11rb::protocol::randr::ConnectionExt as _;
 use x11rb::protocol::xinput::{self, ConnectionExt as _};
 use x11rb::protocol::xproto::{
-    ChangeWindowAttributesAux, ConfigureWindowAux, ConnectionExt as _, EventMask, StackMode,
+    AtomEnum, ChangeWindowAttributesAux, ConfigureWindowAux, ConnectionExt as _, EventMask,
+    InputFocus, StackMode,
 };
 use x11rb::protocol::Event;
 use x11rb::wrapper::ConnectionExt as _;
@@ -87,6 +88,8 @@ pub fn show(
 ///   delivered regardless of which window is under the pointer.
 /// - Docking, undocking or changing the primary monitor emits RandR events;
 ///   the island re-centers on the (new) primary monitor.
+/// - A fullscreen window on this monitor (video, game, slides) hides the
+///   island: we watch the active window and its _NET_WM_STATE.
 fn x_events(
     conn: &impl Connection,
     xid: u32,
@@ -94,6 +97,13 @@ fn x_events(
     hit: &island::HitRect,
     pointer: &async_channel::Sender<island::Pointer>,
 ) {
+    let atoms = match Atoms::new(conn) {
+        Ok(a) => Some(a),
+        Err(e) => {
+            tracing::warn!("cannot intern atoms, fullscreen detection off: {e}");
+            None
+        }
+    };
     let mask = ChangeWindowAttributesAux::new().event_mask(EventMask::STRUCTURE_NOTIFY);
     if let Err(e) = conn.change_window_attributes(xid, &mask).map(|_| ()) {
         tracing::error!("cannot watch window moves: {e}");
@@ -106,10 +116,37 @@ fn x_events(
     if let Err(e) = select_monitor_changes(conn, root) {
         tracing::warn!("RandR events unavailable, won't follow monitor changes: {e}");
     }
+    // Our own event mask on the root: tells us when the active window changes.
+    let root_mask = ChangeWindowAttributesAux::new().event_mask(EventMask::PROPERTY_CHANGE);
+    if let Err(e) = conn.change_window_attributes(root, &root_mask).map(|_| ()) {
+        tracing::warn!("cannot watch the active window: {e}");
+    }
 
-    let mut target = target_position(conn, connector);
+    let mut monitor = monitor_rect(conn, connector);
+    let mut target = target_of(monitor, connector);
     move_to(conn, xid, target);
     let mut inside = false;
+    let mut active: Option<u32> = None;
+    let mut fullscreen = false;
+    // Re-evaluates fullscreen and tells the UI only when it changes.
+    let mut refresh = |active: Option<u32>, monitor: (i32, i32, i32, i32)| -> bool {
+        let now = atoms
+            .as_ref()
+            .zip(active)
+            .is_some_and(|(a, w)| is_fullscreen_on(conn, root, a, w, monitor));
+        if now == fullscreen {
+            return true;
+        }
+        fullscreen = now;
+        tracing::debug!("fullscreen on {connector}: {now}");
+        pointer
+            .send_blocking(island::Pointer::Fullscreen(now))
+            .is_ok()
+    };
+    if let Some(a) = &atoms {
+        active = watch_active(conn, root, a, active);
+        refresh(active, monitor);
+    }
 
     loop {
         match conn.wait_for_event() {
@@ -148,10 +185,28 @@ fn x_events(
             // One layout change sends a burst of these; moving is idempotent,
             // and only an actual change of position does anything.
             Ok(Event::RandrScreenChangeNotify(_) | Event::RandrNotify(_)) => {
-                let now = target_position(conn, connector);
+                monitor = monitor_rect(conn, connector);
+                let now = target_of(monitor, connector);
                 if now != target {
                     target = now;
                     move_to(conn, xid, target);
+                }
+            }
+            Ok(Event::PropertyNotify(ev)) => {
+                let Some(a) = &atoms else { continue };
+                if ev.window == root && ev.atom == a.active {
+                    active = watch_active(conn, root, a, active);
+                } else if Some(ev.window) != active || ev.atom != a.state {
+                    continue;
+                }
+                if !refresh(active, monitor) {
+                    return;
+                }
+            }
+            // The active window moved (e.g. to another monitor) or resized.
+            Ok(Event::ConfigureNotify(ev)) if Some(ev.window) == active => {
+                if !refresh(active, monitor) {
+                    return;
                 }
             }
             // The monitor went away and the UI destroyed our window.
@@ -207,12 +262,93 @@ fn pointer_in(
     Some(px >= x && px < x + w && py >= y && py < y + h)
 }
 
-/// Top center of the monitor named `connector`, in root coordinates. Falls
-/// back to the primary (then first) monitor while RandR catches up.
-fn target_position(conn: &impl Connection, connector: &str) -> (i32, i32) {
+struct Atoms {
+    active: u32,
+    state: u32,
+    fullscreen: u32,
+}
+
+impl Atoms {
+    fn new(conn: &impl Connection) -> Result<Self, Box<dyn std::error::Error>> {
+        let get = |name: &str| -> Result<u32, Box<dyn std::error::Error>> {
+            Ok(conn.intern_atom(false, name.as_bytes())?.reply()?.atom)
+        };
+        Ok(Self {
+            active: get("_NET_ACTIVE_WINDOW")?,
+            state: get("_NET_WM_STATE")?,
+            fullscreen: get("_NET_WM_STATE_FULLSCREEN")?,
+        })
+    }
+}
+
+/// Reads _NET_ACTIVE_WINDOW and subscribes to that window's state and
+/// geometry changes. Subscribing to another client's window only adds our
+/// own event mask; it doesn't affect that client.
+fn watch_active(
+    conn: &impl Connection,
+    root: u32,
+    a: &Atoms,
+    previous: Option<u32>,
+) -> Option<u32> {
+    let reply = conn
+        .get_property(false, root, a.active, AtomEnum::WINDOW, 0, 1)
+        .ok()?
+        .reply()
+        .ok()?;
+    let window = reply.value32()?.next().filter(|w| *w != 0)?;
+    if previous != Some(window) {
+        let mask = ChangeWindowAttributesAux::new()
+            .event_mask(EventMask::PROPERTY_CHANGE | EventMask::STRUCTURE_NOTIFY);
+        // The window may already be gone; that's fine.
+        let _ = conn.change_window_attributes(window, &mask).map(|_| ());
+        let _ = conn.flush();
+    }
+    Some(window)
+}
+
+/// Whether `window` is fullscreen and covers part of `monitor`.
+fn is_fullscreen_on(
+    conn: &impl Connection,
+    root: u32,
+    a: &Atoms,
+    window: u32,
+    (mx, my, mw, mh): (i32, i32, i32, i32),
+) -> bool {
+    let fullscreen = conn
+        .get_property(false, window, a.state, AtomEnum::ATOM, 0, 32)
+        .ok()
+        .and_then(|c| c.reply().ok())
+        .and_then(|r| r.value32().map(|mut v| v.any(|s| s == a.fullscreen)))
+        .unwrap_or(false);
+    if !fullscreen {
+        return false;
+    }
+    let Some(geo) = conn.get_geometry(window).ok().and_then(|c| c.reply().ok()) else {
+        return false;
+    };
+    let Some(at) = conn
+        .translate_coordinates(window, root, 0, 0)
+        .ok()
+        .and_then(|c| c.reply().ok())
+    else {
+        return false;
+    };
+    let (x, y) = (i32::from(at.dst_x), i32::from(at.dst_y));
+    let (w, h) = (i32::from(geo.width), i32::from(geo.height));
+    x < mx + mw && x + w > mx && y < my + mh && y + h > my
+}
+
+fn target_of((mx, my, mw, _): (i32, i32, i32, i32), connector: &str) -> (i32, i32) {
+    let x = mx + (mw - island::WIN_W) / 2;
+    tracing::info!("placing island for {connector} at {x},{my} (monitor width {mw})");
+    (x, my)
+}
+
+/// Bounds of the monitor named `connector`, in root coordinates. Falls back
+/// to the primary (then first) monitor while RandR catches up.
+fn monitor_rect(conn: &impl Connection, connector: &str) -> (i32, i32, i32, i32) {
     let root = conn.setup().roots[0].root;
-    let (mx, my, mw) = conn
-        .randr_get_monitors(root, true)
+    conn.randr_get_monitors(root, true)
         .ok()
         .and_then(|c| c.reply().ok())
         .and_then(|r| {
@@ -225,15 +361,17 @@ fn target_position(conn: &impl Connection, connector: &str) -> (i32, i32) {
             let m = named
                 .or_else(|| r.monitors.iter().find(|m| m.primary))
                 .or(r.monitors.first())?;
-            Some((i32::from(m.x), i32::from(m.y), i32::from(m.width)))
+            Some((
+                i32::from(m.x),
+                i32::from(m.y),
+                i32::from(m.width),
+                i32::from(m.height),
+            ))
         })
         .unwrap_or_else(|| {
-            tracing::warn!("RandR monitor query failed, assuming 1920px at 0,0");
-            (0, 0, 1920)
-        });
-    let x = mx + (mw - island::WIN_W) / 2;
-    tracing::info!("placing island for {connector} at {x},{my} (monitor width {mw})");
-    (x, my)
+            tracing::warn!("RandR monitor query failed, assuming 1920x1080 at 0,0");
+            (0, 0, 1920, 1080)
+        })
 }
 
 /// Override-redirect windows are never placed by the WM, so we do it ourselves.
@@ -248,4 +386,44 @@ fn move_to(conn: &impl Connection, xid: u32, (x, y): (i32, i32)) {
     if let Err(e) = conn.flush() {
         tracing::error!("X flush failed: {e}");
     }
+}
+
+thread_local! {
+    // A UI-thread connection for one-shot focus requests (the event thread's
+    // connection is busy blocking in wait_for_event).
+    static FOCUS_CONN: Option<x11rb::rust_connection::RustConnection> =
+        x11rb::connect(None).ok().map(|(c, _)| c);
+}
+
+/// Gives the island's window keyboard focus so the user can type in it.
+/// Override-redirect windows get no focus from the window manager, so we
+/// set it ourselves. Returns the window that had focus, to hand it back.
+pub fn take_focus(widget: &impl IsA<gtk::Widget>) -> Option<u32> {
+    let xid = widget
+        .native()
+        .and_then(|n| n.surface())
+        .and_then(|s| s.downcast::<X11Surface>().ok())
+        .map(|s| s.xid() as u32)?;
+    FOCUS_CONN.with(|conn| {
+        let conn = conn.as_ref()?;
+        let previous = conn.get_input_focus().ok()?.reply().ok()?.focus;
+        conn.set_input_focus(InputFocus::PARENT, xid, x11rb::CURRENT_TIME)
+            .ok()?;
+        conn.flush().ok()?;
+        Some(previous)
+    })
+}
+
+/// Returns keyboard focus to the window that had it before `take_focus`.
+pub fn give_back_focus(previous: u32) {
+    FOCUS_CONN.with(|conn| {
+        let Some(conn) = conn.as_ref() else { return };
+        // The window may have closed meanwhile; then the WM picks one.
+        if conn
+            .set_input_focus(InputFocus::PARENT, previous, x11rb::CURRENT_TIME)
+            .is_ok()
+        {
+            let _ = conn.flush();
+        }
+    });
 }

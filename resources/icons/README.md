@@ -23,3 +23,7 @@ https://github.com/google/material-design-icons
 - atoll-terminal-symbolic.svg: `terminal`
 - atoll-check-symbolic.svg: `check`
 - atoll-close-symbolic.svg: `close`
+- atoll-add-symbolic.svg: `add`
+- atoll-edit-symbolic.svg: `edit`
+- atoll-check-circle-symbolic.svg: `check_circle (filled)`
+- atoll-circle-symbolic.svg: `radio_button_unchecked`

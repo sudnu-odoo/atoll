@@ -14,7 +14,7 @@ use crate::cards::peek::{Kind, Peek};
 use crate::config::Config;
 use crate::island::{self, Island};
 use crate::services::{bluez, claude, lyrics, mpris, upower};
-use crate::{settings, theme, water, window};
+use crate::{settings, theme, todo, water, window};
 
 /// A dock connect fires several monitor changes in a row; act once it settles.
 const MONITORS_SETTLE: Duration = Duration::from_millis(400);
@@ -25,6 +25,7 @@ struct Hub {
     deps: RefCell<island::Deps>,
     config: RefCell<Config>,
     water: RefCell<Option<Rc<water::Water>>>,
+    todo: RefCell<Option<Rc<todo::Todo>>>,
     settings: RefCell<Option<glib::WeakRef<gtk::Window>>>,
     /// Replayed to islands created later (a monitor plugged in mid-song).
     last_track: RefCell<Option<mpris::Update>>,
@@ -66,6 +67,7 @@ pub fn build(app: &Application) {
     let (settings_tx, settings_rx) = async_channel::unbounded();
     let (claude_tx, claude_rx) = async_channel::unbounded();
     let (answer_tx, answer_rx) = async_channel::unbounded();
+    let (todo_tx, todo_rx) = async_channel::unbounded();
     claude::spawn(claude_tx);
     // Services always run (they idle on D-Bus signals at no cost); whether
     // their output is shown is decided per event, so toggling a feature in
@@ -82,9 +84,11 @@ pub fn build(app: &Application) {
             water_commands: water_tx,
             open_settings: settings_tx,
             claude_answers: answer_tx,
+            todo_commands: todo_tx,
             features: config.features.clone(),
         }),
         water: RefCell::default(),
+        todo: RefCell::default(),
         settings: RefCell::default(),
         config: RefCell::new(config.clone()),
         last_track: RefCell::default(),
@@ -124,11 +128,26 @@ pub fn build(app: &Application) {
             config.save();
         }
     });
-    // Once a minute keeps "next in N min" current and rolls the day over.
+    let h = Rc::downgrade(&hub);
+    let t = Rc::new(todo::Todo::new(move |view| {
+        if let Some(hub) = h.upgrade() {
+            hub.each(|i| i.on_todo(&view));
+        }
+    }));
+    hub.todo.replace(Some(t.clone()));
+    forward(todo_rx, move |cmd| t.handle(cmd));
+
+    // Once a minute keeps "next in N min" current and rolls the day over
+    // (water log, and yesterday's done tasks leaving the list).
     let h = Rc::downgrade(&hub);
     crate::cards::every_minute(move |_| {
-        if let Some(w) = h.upgrade().and_then(|h| h.water.borrow().clone()) {
+        let Some(hub) = h.upgrade() else { return };
+        if let Some(w) = hub.water.borrow().clone() {
             w.publish();
+        }
+        let todo = hub.todo.borrow().clone();
+        if let Some(t) = todo {
+            t.publish();
         }
     });
 
@@ -189,6 +208,19 @@ fn forward<T: 'static>(rx: async_channel::Receiver<T>, f: impl Fn(T) + 'static) 
 
 impl Hub {
     fn on_claude(self: &Rc<Self>, incoming: claude::Incoming) {
+        if let claude::Request::CommandDone {
+            command,
+            status,
+            seconds,
+            project,
+        } = &incoming.request
+        {
+            if self.config.borrow().features.command_peek {
+                let peek = command_peek(command, *status, *seconds, project);
+                self.each(|i| i.on_peek(peek.clone()));
+            }
+            return;
+        }
         // Switched off: dropping the request (no reply) leaves Claude Code
         // to show its own prompt.
         if !self.config.borrow().features.claude {
@@ -203,6 +235,7 @@ impl Hub {
                 let peek = claude_peek("Claude is waiting for you", message, project);
                 self.each(|i| i.on_peek(peek.clone()));
             }
+            claude::Request::CommandDone { .. } => {}
             _ => {
                 self.claude_queue.borrow_mut().push_back(incoming);
                 if self.claude_current.borrow().is_none() {
@@ -399,6 +432,9 @@ impl Hub {
         if let Some(view) = self.water.borrow().as_ref().and_then(|w| w.view()) {
             island.on_water(&view);
         }
+        if let Some(t) = self.todo.borrow().as_ref() {
+            island.on_todo(&t.view());
+        }
         // Catch up on what's already playing.
         for update in [&self.last_track, &self.last_art] {
             if let Some(u) = update.borrow().clone() {
@@ -464,6 +500,30 @@ fn claude_peek(title: &str, message: &str, project: &str) -> Peek {
     Peek {
         kind: Kind::Claude,
         title: title.into(),
+        subtitle,
+        percent: None,
+    }
+}
+
+fn command_peek(command: &str, status: i32, seconds: u64, project: &str) -> Peek {
+    let took = match seconds {
+        s if s < 60 => format!("{s}s"),
+        s if s < 3600 => format!("{}m {:02}s", s / 60, s % 60),
+        s => format!("{}h {:02}m", s / 3600, (s % 3600) / 60),
+    };
+    let outcome = if status == 0 {
+        format!("Done in {took}")
+    } else {
+        format!("Failed (exit {status}) after {took}")
+    };
+    let subtitle = if project.is_empty() {
+        outcome
+    } else {
+        format!("{outcome} · {project}")
+    };
+    Peek {
+        kind: Kind::Command { ok: status == 0 },
+        title: command.to_owned(),
         subtitle,
         percent: None,
     }

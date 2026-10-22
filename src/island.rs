@@ -15,6 +15,7 @@ use crate::cards::clock::{Collapsed, Idle};
 use crate::cards::control_button;
 use crate::cards::music::{Lyrics, MusicCard};
 use crate::cards::peek::{Peek, PeekCard};
+use crate::cards::todo::{TodoCard, Typing};
 use crate::cards::water::WaterCard;
 use crate::config::Features;
 use crate::services::mpris::{Command, Update};
@@ -23,12 +24,14 @@ use crate::water;
 
 /// Body sizes (without the ears) for each state.
 pub const COLLAPSED: (f64, f64) = (200.0, 32.0);
-// Expanded cards keep 40px each side (see style.css) for the page arrows.
+// Expanded cards keep a 52px margin each side (see style.css) for the page
+// arrows and the settings button, with room to spare around them.
 // Cards end ~10px above the bottom edge, leaving a strip for the page dots.
-pub const EXPANDED_MUSIC: (f64, f64) = (544.0, 206.0);
-pub const EXPANDED_LYRICS: (f64, f64) = (844.0, 206.0);
-pub const EXPANDED_WATER: (f64, f64) = (544.0, 206.0);
-pub const EXPANDED_IDLE: (f64, f64) = (340.0, 128.0);
+pub const EXPANDED_MUSIC: (f64, f64) = (568.0, 206.0);
+pub const EXPANDED_LYRICS: (f64, f64) = (868.0, 206.0);
+pub const EXPANDED_WATER: (f64, f64) = (568.0, 206.0);
+pub const EXPANDED_IDLE: (f64, f64) = (364.0, 128.0);
+pub const EXPANDED_TODO: (f64, f64) = (568.0, 206.0);
 /// Claude prompts: fixed width, height grows with the content up to
 /// CLAUDE_MAX_H (long questions, many options).
 pub const EXPANDED_CLAUDE: (f64, f64) = (600.0, 206.0);
@@ -67,6 +70,8 @@ pub enum Pointer {
     /// A primary click on the notch, seen even where GTK can't see it (over
     /// the GNOME bar).
     Click(i32, i32),
+    /// A fullscreen window covers this island's monitor.
+    Fullscreen(bool),
 }
 
 /// Everything an island needs from the rest of the app: where to send user
@@ -78,6 +83,7 @@ pub struct Deps {
     pub water_commands: async_channel::Sender<water::Command>,
     pub open_settings: async_channel::Sender<()>,
     pub claude_answers: async_channel::Sender<claude::Reply>,
+    pub todo_commands: async_channel::Sender<crate::todo::Command>,
     pub features: Features,
 }
 
@@ -108,6 +114,7 @@ pub struct Island {
     collapsed: Rc<Collapsed>,
     music: Rc<MusicCard>,
     water: WaterCard,
+    todo: Rc<TodoCard>,
     claude: Rc<ClaudeCard>,
     features: Features,
     /// Index into `pages()` of the expanded card being shown.
@@ -132,6 +139,10 @@ pub struct Island {
     /// working.
     pinned: Cell<bool>,
     hovered: Cell<bool>,
+    fullscreen: Cell<bool>,
+    /// The user is typing in the notch: it holds keyboard focus (taken from
+    /// this window) and stays open until typing ends.
+    typing_from: Cell<Option<Option<u32>>>,
     /// Song the lyrics panel should show; lookups only happen in lyrics mode,
     /// so nothing about the music leaves the machine unless asked for.
     lyrics_key: RefCell<Option<lyrics::Key>>,
@@ -155,7 +166,13 @@ impl Island {
                     island.toggle_pin();
                 }
             };
-            Self::build(hit, deps, on_lyrics, on_pin)
+            let w = weak.clone();
+            let on_typing = move |t| {
+                if let Some(island) = w.upgrade() {
+                    island.on_typing(t);
+                }
+            };
+            Self::build(hit, deps, on_lyrics, on_pin, on_typing)
         });
         island.connect_pager();
         // Next question in a multi-question prompt: refit the notch.
@@ -175,6 +192,7 @@ impl Island {
         deps: Deps,
         on_lyrics: impl Fn() + 'static,
         on_pin: impl Fn() + 'static,
+        on_typing: impl Fn(Typing) + 'static,
     ) -> Self {
         let Deps {
             commands,
@@ -182,6 +200,7 @@ impl Island {
             water_commands,
             open_settings,
             claude_answers,
+            todo_commands,
             features,
         } = deps;
         let size = Rc::new(Cell::new(COLLAPSED));
@@ -198,6 +217,7 @@ impl Island {
         let idle = Idle::new();
         let water = WaterCard::new(water_commands);
         let claude = ClaudeCard::new(claude_answers);
+        let todo = TodoCard::new(todo_commands, on_typing);
 
         // Pages size to their own content, so the overlay never forces the
         // notch area bigger than the visible card.
@@ -213,6 +233,7 @@ impl Island {
         stack.add_named(&idle.root, Some("idle"));
         stack.add_named(&water.root, Some("water"));
         stack.add_named(&claude.root, Some("claude"));
+        stack.add_named(&todo.root, Some("todo"));
         let peek = PeekCard::new();
         stack.add_named(&peek.root, Some("peek"));
         stack.add_named(&gtk::Box::new(gtk::Orientation::Vertical, 0), Some("none"));
@@ -259,6 +280,7 @@ impl Island {
             collapsed,
             music,
             water,
+            todo,
             claude,
             features,
             page: Cell::new(0),
@@ -280,6 +302,8 @@ impl Island {
             lyrics_mode: Cell::new(false),
             pinned: Cell::new(false),
             hovered: Cell::new(false),
+            fullscreen: Cell::new(false),
+            typing_from: Cell::new(None),
             lyrics_key: RefCell::new(None),
             lyrics_loaded: RefCell::new(None),
             lyrics_requests,
@@ -298,6 +322,23 @@ impl Island {
         match event {
             Pointer::Hover(inside) => self.on_hover(inside),
             Pointer::Click(x, y) => self.on_click(x, f64::from(y)),
+            Pointer::Fullscreen(on) => self.set_fullscreen(on),
+        }
+    }
+
+    /// Steps aside for fullscreen windows: hidden, and no input region, so
+    /// nothing of the island can be seen or clicked. A Claude prompt still
+    /// shows: it's waiting on the user and would otherwise time out unseen.
+    fn set_fullscreen(self: &Rc<Self>, on: bool) {
+        self.fullscreen.set(on);
+        let hide = on && self.state.get() != State::Claude;
+        self.root.set_visible(!hide);
+        if hide {
+            if let Some(surface) = self.root.native().and_then(|n| n.surface()) {
+                surface.set_input_region(Some(&cairo::Region::create()));
+            }
+        } else {
+            self.set_bounds(self.size.get());
         }
     }
 
@@ -321,6 +362,12 @@ impl Island {
         self.hovered.set(inside);
         if self.state.get() == State::Claude {
             return; // a prompt holds the notch open regardless
+        }
+        if self.fullscreen.get() {
+            return; // hidden: the pointer is just near the screen edge
+        }
+        if !inside && self.typing_from.get().is_some() {
+            return; // mid-typing: stay open even if the pointer drifts off
         }
         if let Some(id) = self.collapse_timer.take() {
             id.remove();
@@ -348,6 +395,32 @@ impl Island {
 
     pub fn on_water(&self, view: &water::View) {
         self.water.update(view);
+    }
+
+    fn on_typing(self: &Rc<Self>, typing: Typing) {
+        match typing {
+            Typing::Started => {
+                if self.typing_from.get().is_none() {
+                    self.typing_from
+                        .set(Some(crate::window::take_focus(&self.root)));
+                }
+            }
+            Typing::Ended { restore_focus } => {
+                let Some(previous) = self.typing_from.take() else {
+                    return;
+                };
+                if let (true, Some(prev)) = (restore_focus, previous) {
+                    crate::window::give_back_focus(prev);
+                }
+                if !self.hovered.get() {
+                    self.on_hover(false); // close as usual now
+                }
+            }
+        }
+    }
+
+    pub fn on_todo(&self, view: &crate::todo::View) {
+        self.todo.update(view);
     }
 
     pub fn on_music(self: &Rc<Self>, update: Update) {
@@ -464,6 +537,9 @@ impl Island {
         }
         if self.features.water {
             pages.push(("water", EXPANDED_WATER));
+        }
+        if self.features.todo {
+            pages.push(("todo", EXPANDED_TODO));
         }
         pages
     }
@@ -584,6 +660,7 @@ impl Island {
             self.music.set_active(false);
             self.show_pager(false);
             self.state.set(State::Claude);
+            self.root.set_visible(true); // even over a fullscreen window
             self.claude.show(r);
             self.fit_claude();
             return;
@@ -592,6 +669,12 @@ impl Island {
             return;
         }
         self.claude.stop();
+        if self.fullscreen.get() {
+            self.state.set(State::Expanded);
+            self.collapse();
+            self.set_fullscreen(true);
+            return;
+        }
         if self.hovered.get() {
             self.expand(); // still under the pointer: back to the normal card
         } else {
@@ -611,6 +694,9 @@ impl Island {
     }
 
     pub fn on_peek(self: &Rc<Self>, peek: Peek) {
+        if self.fullscreen.get() {
+            return; // don't pop over videos or slides
+        }
         if matches!(self.state.get(), State::Expanded | State::Claude) {
             self.queued_peek
                 .replace(Some((peek, std::time::Instant::now())));
@@ -739,6 +825,9 @@ impl Island {
     }
 
     fn set_bounds(&self, size: (f64, f64)) {
+        if !self.root.is_visible() {
+            return; // hidden for fullscreen: keep the empty input region
+        }
         set_bounds(&self.root, &self.hit, size);
     }
 }

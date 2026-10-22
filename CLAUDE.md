@@ -45,7 +45,7 @@ Requirements for the island window:
 
 - Transparent background (RGBA visual, compositor is active), only the pill is visible
 - Positioned at the horizontal center of the **primary** monitor, top edge at y = monitor top
-- Never steals keyboard focus; not in the taskbar, dock, Alt+Tab, or overview
+- Never steals keyboard focus; not in the taskbar, dock, Alt+Tab, or overview. One exception (the user's decision): while the user is typing in the notch after clicking a text action (e.g. adding a to-do), it takes focus and hands it back to the previous window on Enter, Esc, or leaving
 - Input shape limited to the pill's current bounds, so clicks elsewhere on the top bar pass through to GNOME
 - Re-positions itself when monitors change (listen for RandR events)
 - Hides or steps aside when a fullscreen window is active

@@ -50,7 +50,7 @@ window.island {
 
 /* Expanded: nothing playing */
 .idle-card {
-  padding: 30px 40px 14px;
+  padding: 30px 52px 14px;
 }
 .big-clock {
   font-family: "JetBrainsMono Nerd Font Mono";
@@ -61,9 +61,14 @@ window.island {
 .idle-card .caps { margin-top: 4px; }
 
 /* Expanded: music */
-/* 40px side padding leaves room for the page arrows. */
+/* 52px side padding: the page arrows and settings button sit in this
+   margin (8px in, 26px wide), leaving ~18px of air before the content. */
 .player {
-  padding: 16px 40px 12px;
+  padding: 16px 52px 12px;
+}
+/* In lyrics mode the lyrics panel is the right edge, so it takes the margin. */
+.player.with-lyrics {
+  padding-right: 24px;
 }
 .card-top {
   min-height: 26px;
@@ -103,7 +108,7 @@ window.island {
 
 /* Lyrics panel, right of the player in lyrics mode. */
 .lyrics {
-  padding: 0 30px 0 26px;
+  padding: 0 52px 0 26px;
   margin: 18px 0 16px;
   border-left: 1px solid alpha(@bg_raised, 0.9);
 }
@@ -124,7 +129,7 @@ window.island {
 /* Same top padding as the music card, so every card's top row (and the
    settings button centered on it) lines up. */
 .water-card {
-  padding: 16px 40px 14px;
+  padding: 16px 52px 14px;
 }
 .water-card > box:last-child {
   margin-top: 10px;
@@ -417,5 +422,73 @@ button.option-row:checked .option-label {
 }
 .option-description {
   font-size: 12px;
+  color: @muted;
+}
+
+/* To-do card */
+.todo-icon {
+  -gtk-icon-size: 13px;
+  color: @lavender;
+}
+.todo-body {
+  margin-top: 10px;
+}
+.todo-row {
+  border-radius: 10px;
+  background-color: alpha(@bg_raised, 0.5);
+  padding-right: 4px;
+  transition: background-color 120ms ease-out;
+}
+.todo-row:hover {
+  background-color: alpha(@bg_raised, 0.85);
+}
+.todo-row.done {
+  background-color: alpha(@pink, 0.12);
+}
+button.todo-toggle {
+  padding: 6px 12px;
+  border: none;
+  background: none;
+  box-shadow: none;
+}
+.todo-row.done .todo-toggle label {
+  color: @muted;
+  text-decoration-line: line-through;
+}
+.todo-check {
+  -gtk-icon-size: 18px;
+  color: @lavender;
+}
+.todo-row.done .todo-check {
+  color: @pink;
+}
+/* Edit / delete appear on hover, so the list stays calm. */
+button.control.todo-tool {
+  min-width: 26px;
+  min-height: 26px;
+  -gtk-icon-size: 15px;
+  color: @muted;
+  opacity: 0;
+  transition: opacity 120ms ease-out;
+}
+.todo-row:hover button.control.todo-tool {
+  opacity: 1;
+}
+button.control.todo-tool:hover {
+  color: @pink;
+}
+entry.todo-entry {
+  min-height: 32px;
+  border-radius: 10px;
+  background-color: alpha(@bg_raised, 0.8);
+  color: @text;
+  caret-color: @pink;
+  border: 1px solid alpha(@pink, 0.5);
+  box-shadow: none;
+}
+window.settings entry {
+  min-height: 34px;
+}
+window.settings .todo-done-entry {
   color: @muted;
 }

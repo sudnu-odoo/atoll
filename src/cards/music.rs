@@ -350,6 +350,7 @@ impl MusicCard {
         };
         self.root.set_size_request(w as i32, h as i32);
         toggle_class(&self.lyrics_button, "on", on);
+        toggle_class(&self.player, "with-lyrics", on);
         self.refresh();
         self.restart_ticker();
     }

@@ -46,6 +46,14 @@ pub enum Request {
     Finished { message: String, project: String },
     /// Claude has been waiting for input for a while.
     Waiting { message: String, project: String },
+    /// A long terminal command finished (from the shell integration, not
+    /// Claude; it shares the socket).
+    CommandDone {
+        command: String,
+        status: i32,
+        seconds: u64,
+        project: String,
+    },
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

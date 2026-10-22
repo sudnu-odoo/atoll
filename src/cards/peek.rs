@@ -19,6 +19,7 @@ pub enum Kind {
     Unplugged,
     Water,
     Claude,
+    Command { ok: bool },
 }
 
 #[derive(Clone)]
@@ -125,6 +126,9 @@ impl PeekCard {
             Kind::Unplugged => ("atoll-unplugged-symbolic", palette::MUTED),
             Kind::Water => ("atoll-drop-symbolic", palette::lavender()),
             Kind::Claude => ("atoll-claude-symbolic", palette::pink()),
+            // Success is calm; failure takes the attention color.
+            Kind::Command { ok: true } => ("atoll-check-symbolic", palette::lavender()),
+            Kind::Command { ok: false } => ("atoll-close-symbolic", palette::pink()),
         };
         self.icon.set_icon_name(Some(icon));
         // No level (e.g. Claude): a full ring, so it reads as a badge
