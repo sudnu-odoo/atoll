@@ -425,70 +425,263 @@ button.option-row:checked .option-label {
   color: @muted;
 }
 
-/* To-do card */
+/* To-do card (Nusa's to-do layout, Atoll's palette) */
 .todo-icon {
   -gtk-icon-size: 13px;
   color: @lavender;
 }
 .todo-body {
-  margin-top: 10px;
+  margin-top: 8px;
 }
-.todo-row {
+.todo-title {
+  font-size: 15px;
+  font-weight: 700;
+}
+.todo-count {
+  font-size: 46px;
+  font-weight: 700;
+}
+.todo-caption {
+  margin-top: 2px;
+}
+.todo-actions {
+  margin-top: 12px;
+}
+button.control.todo-action {
+  min-height: 28px;
+  padding: 0 4px;
+  border-radius: 8px;
+  -gtk-icon-size: 16px;
+  color: @text;
+}
+button.control.todo-action.add image {
+  color: @pink;
+}
+button.control.todo-action:hover {
+  background-color: alpha(@bg_raised, 0.7);
+}
+button.control.todo-action.on {
+  color: @pink;
+}
+/* Rows: check, title, time range underneath. */
+button.todo-row {
+  padding: 5px 12px;
+  border: none;
   border-radius: 10px;
+  box-shadow: none;
   background-color: alpha(@bg_raised, 0.5);
-  padding-right: 4px;
-  transition: background-color 120ms ease-out;
+  transition: background-color 150ms ease-out;
 }
-.todo-row:hover {
+button.todo-row:hover {
   background-color: alpha(@bg_raised, 0.85);
 }
-.todo-row.done {
-  background-color: alpha(@pink, 0.12);
+button.todo-row.done {
+  background-color: alpha(@pink, 0.16);
 }
-button.todo-toggle {
-  padding: 6px 12px;
-  border: none;
-  background: none;
-  box-shadow: none;
+.todo-text {
+  font-size: 14px;
 }
-.todo-row.done .todo-toggle label {
+button.todo-row.done .todo-text {
   color: @muted;
   text-decoration-line: line-through;
 }
-.todo-check {
-  -gtk-icon-size: 18px;
+.todo-time {
+  font-family: "JetBrainsMono Nerd Font Mono";
+  font-size: 11px;
   color: @lavender;
 }
-.todo-row.done .todo-check {
-  color: @pink;
-}
-/* Edit / delete appear on hover, so the list stays calm. */
-button.control.todo-tool {
-  min-width: 26px;
-  min-height: 26px;
-  -gtk-icon-size: 15px;
+button.todo-row.done .todo-time {
   color: @muted;
-  opacity: 0;
-  transition: opacity 120ms ease-out;
 }
-.todo-row:hover button.control.todo-tool {
-  opacity: 1;
+.todo-check {
+  -gtk-icon-size: 20px;
+  color: @lavender;
 }
-button.control.todo-tool:hover {
+button.todo-row.done .todo-check {
   color: @pink;
 }
-entry.todo-entry {
+.todo-pencil {
+  -gtk-icon-size: 14px;
+  color: @muted;
+}
+.todo-scroller scrollbar {
+  background: none;
+  border: none;
+  margin-left: 6px;
+}
+.todo-scroller scrollbar slider {
+  min-width: 3px;
+  border-radius: 2px;
+  background-color: alpha(@text, 0.7);
+}
+/* Form */
+.todo-field {
   min-height: 32px;
   border-radius: 10px;
-  background-color: alpha(@bg_raised, 0.8);
+  border: 1px solid alpha(@bg_raised, 0.9);
+  background-color: alpha(@bg_raised, 0.5);
   color: @text;
-  caret-color: @pink;
-  border: 1px solid alpha(@pink, 0.5);
   box-shadow: none;
+  caret-color: @pink;
+}
+entry.todo-field:focus-within {
+  border-color: alpha(@pink, 0.6);
+}
+entry.todo-field image {
+  color: @muted;
+}
+.todo-time-field {
+  padding: 0 10px;
+}
+.todo-clock {
+  -gtk-icon-size: 15px;
+  color: @muted;
+  margin-right: 6px;
+}
+entry.todo-digits {
+  font-family: "JetBrainsMono Nerd Font Mono";
+  min-width: 0;
+  min-height: 30px;
+  padding: 0 2px;
+  border: none;
+  background: none;
+  box-shadow: none;
+  color: @text;
+}
+.todo-sep {
+  color: @muted;
+  margin: 0 2px;
+}
+/* Delete, Cancel and Save: one height, one shape, one line. */
+.todo-form-buttons > button {
+  min-height: 32px;
+  margin: 0; /* button.control's top margin is for the music controls */
+  padding-top: 0;
+  padding-bottom: 0;
+  border-radius: 999px;
+}
+button.todo-text-button {
+  padding: 0 16px;
+  border: none;
+  box-shadow: none;
+  background-color: alpha(@bg_raised, 0.7);
+  color: @text;
+}
+button.todo-text-button:hover {
+  background-color: alpha(@bg_raised, 1);
+}
+button.todo-text-button.danger {
+  background-color: alpha(@pink, 0.14);
+  color: @pink;
+}
+button.todo-text-button.danger:hover {
+  background-color: alpha(@pink, 0.24);
+}
+button.control.todo-save {
+  min-height: 32px;
+  padding: 0 16px;
+  background-color: @pink;
+  color: @bg;
+  font-weight: 700;
+}
+button.control.todo-save label {
+  color: @bg;
+}
+button.control.todo-save:disabled {
+  opacity: 0.4;
 }
 window.settings entry {
   min-height: 34px;
 }
-window.settings .todo-done-entry {
+
+/* Calendar card */
+.meeting-title {
+  font-size: 19px;
+  font-weight: 700;
+}
+.meeting-row {
+  padding: 6px 12px;
+  border-radius: 10px;
+  background-color: alpha(@bg_raised, 0.5);
+}
+.cal-body {
+  margin-top: 6px;
+}
+.cal-month {
+  font-size: 13px;
+  font-weight: 700;
+}
+button.control.cal-nav {
+  min-width: 22px;
+  min-height: 22px;
+  -gtk-icon-size: 16px;
+  color: @lavender;
+}
+.cal-weekday {
+  font-size: 10px;
   color: @muted;
+  min-height: 14px;
+}
+button.cal-day {
+  min-height: 22px;
+  min-width: 28px;
+  padding: 0;
+  margin: 0;
+  border: none;
+  border-radius: 999px;
+  background: none;
+  box-shadow: none;
+  font-size: 11px;
+  color: @text;
+}
+button.cal-day:hover {
+  background-color: alpha(@bg_raised, 0.8);
+}
+button.cal-day.other-month {
+  color: alpha(@muted, 0.7);
+}
+/* Days with events get a small accent dot under the number. */
+.cal-dot {
+  min-width: 4px;
+  min-height: 4px;
+  margin-top: 1px;
+  border-radius: 2px;
+}
+button.cal-day.has-events .cal-dot {
+  background-color: @pink;
+}
+button.cal-day.selected .cal-dot {
+  background-color: @bg;
+}
+button.cal-day.today {
+  color: @pink;
+  font-weight: 700;
+}
+button.cal-day.selected {
+  background-color: @pink;
+  color: @bg;
+  font-weight: 700;
+}
+.cal-day-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: @lavender;
+}
+.cal-event {
+  padding: 6px 10px;
+  border-radius: 10px;
+  background-color: alpha(@bg_raised, 0.5);
+}
+.cal-event.all-day {
+  background-color: alpha(@lavender, 0.12);
+}
+.cal-event-title {
+  font-size: 13px;
+  font-weight: 500;
+}
+button.control.round.join {
+  min-width: 28px;
+  min-height: 28px;
+  -gtk-icon-size: 15px;
+  color: @pink;
 }

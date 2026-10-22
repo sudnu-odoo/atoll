@@ -251,6 +251,30 @@ fn features_section(state: &Rc<RefCell<Config>>, on_change: &OnChange) -> gtk::B
             switch_with(
                 state,
                 on_change,
+                "Calendar",
+                "Next meetings from Google Calendar (via Settings → Online Accounts)",
+                |c| c.features.calendar,
+                |c, v| c.features.calendar = v,
+            ),
+            &[row(
+                "Remind before",
+                "Minutes before a meeting to show a peek",
+                &{
+                    let s = gtk::SpinButton::with_range(1.0, 60.0, 1.0);
+                    s.set_value(f64::from(state.borrow().calendar.remind_before_min));
+                    let (st, oc) = (state.clone(), on_change.clone());
+                    s.connect_value_changed(move |s| {
+                        let v = s.value() as u32;
+                        changer(&st, &oc, move |c| c.calendar.remind_before_min = v)();
+                    });
+                    s
+                },
+            )],
+        ),
+        feature(
+            switch_with(
+                state,
+                on_change,
                 "Command finished",
                 "Peek when a long terminal command ends (not ones you stop yourself)",
                 |c| c.features.command_peek,

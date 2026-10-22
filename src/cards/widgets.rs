@@ -115,7 +115,7 @@ impl Ring {
     }
 }
 
-fn draw_ring(cr: &cairo::Context, w: f64, h: f64, fraction: f64) {
+pub fn draw_ring(cr: &cairo::Context, w: f64, h: f64, fraction: f64) {
     let (cx, cy) = (w / 2.0, h / 2.0);
     let r = w.min(h) / 2.0 - 1.5;
     cr.set_line_width(2.5);

@@ -54,7 +54,7 @@ If override-redirect does not place it above the bar, stop and report findings b
 
 ## Design
 
-Inspiration: Apple's Dynamic Island and the "Nusa" notch app for Windows (https://rama2555.github.io/nusa/). Take the **concept** only (a pill that expands on hover into cards). Do **not** copy Nusa's name, artwork, icons, or layouts pixel-for-pixel. Atoll has its own identity that matches the user's desktop. Idle eyes are allowed (the user's decision), drawn Atoll's own way: two sleepy, half-closed lavender eyes that blink slowly and sometimes doze off.
+Inspiration: Apple's Dynamic Island and the "Nusa" notch app for Windows (https://rama2555.github.io/nusa/). Take the **concept** only (a pill that expands on hover into cards). Do **not** copy Nusa's name, artwork, icons, or layouts pixel-for-pixel. Atoll has its own identity that matches the user's desktop. The to-do card follows Nusa's to-do layout (the user's decision), in Atoll's palette. Idle eyes are allowed (the user's decision), drawn Atoll's own way: two sleepy, half-closed lavender eyes that blink slowly and sometimes doze off.
 
 Palette (Dracula, tuned to the user's eclipse wallpaper):
 

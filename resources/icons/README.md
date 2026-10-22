@@ -27,3 +27,6 @@ https://github.com/google/material-design-icons
 - atoll-edit-symbolic.svg: `edit`
 - atoll-check-circle-symbolic.svg: `check_circle (filled)`
 - atoll-circle-symbolic.svg: `radio_button_unchecked`
+- atoll-event-symbolic.svg: `event (filled)`
+- atoll-videocam-symbolic.svg: `videocam (filled)`
+- atoll-clock-symbolic.svg: `schedule`

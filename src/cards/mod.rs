@@ -1,3 +1,4 @@
+pub mod calendar;
 pub mod claude;
 pub mod clock;
 pub mod lyrics;

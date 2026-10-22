@@ -10,6 +10,7 @@ use std::time::Duration;
 use gtk::prelude::*;
 use gtk::{cairo, gdk, glib, Align, DrawingArea, Stack, StackTransitionType};
 
+use crate::cards::calendar::CalendarCard;
 use crate::cards::claude::ClaudeCard;
 use crate::cards::clock::{Collapsed, Idle};
 use crate::cards::control_button;
@@ -32,6 +33,7 @@ pub const EXPANDED_LYRICS: (f64, f64) = (868.0, 206.0);
 pub const EXPANDED_WATER: (f64, f64) = (568.0, 206.0);
 pub const EXPANDED_IDLE: (f64, f64) = (364.0, 128.0);
 pub const EXPANDED_TODO: (f64, f64) = (568.0, 206.0);
+pub const EXPANDED_CALENDAR: (f64, f64) = (568.0, 252.0);
 /// Claude prompts: fixed width, height grows with the content up to
 /// CLAUDE_MAX_H (long questions, many options).
 pub const EXPANDED_CLAUDE: (f64, f64) = (600.0, 206.0);
@@ -84,6 +86,8 @@ pub struct Deps {
     pub open_settings: async_channel::Sender<()>,
     pub claude_answers: async_channel::Sender<claude::Reply>,
     pub todo_commands: async_channel::Sender<crate::todo::Command>,
+    /// Ask the calendar service for a month (answered via `on_month`).
+    pub calendar_months: async_channel::Sender<(i32, u32)>,
     pub features: Features,
 }
 
@@ -115,6 +119,7 @@ pub struct Island {
     music: Rc<MusicCard>,
     water: WaterCard,
     todo: Rc<TodoCard>,
+    calendar: Rc<CalendarCard>,
     claude: Rc<ClaudeCard>,
     features: Features,
     /// Index into `pages()` of the expanded card being shown.
@@ -201,6 +206,7 @@ impl Island {
             open_settings,
             claude_answers,
             todo_commands,
+            calendar_months,
             features,
         } = deps;
         let size = Rc::new(Cell::new(COLLAPSED));
@@ -234,6 +240,10 @@ impl Island {
         stack.add_named(&water.root, Some("water"));
         stack.add_named(&claude.root, Some("claude"));
         stack.add_named(&todo.root, Some("todo"));
+        let calendar = CalendarCard::new(move |y, m| {
+            let _ = calendar_months.try_send((y, m));
+        });
+        stack.add_named(&calendar.root, Some("calendar"));
         let peek = PeekCard::new();
         stack.add_named(&peek.root, Some("peek"));
         stack.add_named(&gtk::Box::new(gtk::Orientation::Vertical, 0), Some("none"));
@@ -281,6 +291,7 @@ impl Island {
             music,
             water,
             todo,
+            calendar,
             claude,
             features,
             page: Cell::new(0),
@@ -316,6 +327,26 @@ impl Island {
             .root
             .connect_map(move |root| set_bounds(root, &hit, COLLAPSED));
         island
+    }
+
+    /// Developer aid (`ATOLL_SHOW=<card>`): opens a card at startup and
+    /// keeps it open, so layouts can be checked with a screenshot instead
+    /// of hovering.
+    pub fn show_for_debugging(self: &Rc<Self>, page: &str) {
+        let page = match page {
+            "todo-add" | "todo-edit" => {
+                self.todo.show_form_for_debugging(page == "todo-edit");
+                "todo"
+            }
+            other => other,
+        };
+        let Some(i) = self.pages().iter().position(|(name, _)| *name == page) else {
+            tracing::warn!("ATOLL_SHOW: no card named {page}");
+            return;
+        };
+        self.page.set(i);
+        self.pinned.set(true);
+        self.expand();
     }
 
     pub fn on_pointer(self: &Rc<Self>, event: Pointer) {
@@ -417,6 +448,15 @@ impl Island {
                 }
             }
         }
+    }
+
+    pub fn on_month(&self, year: i32, month: u32, events: &[crate::services::calendar::Meeting]) {
+        self.calendar.set_month(year, month, events);
+    }
+
+    /// Once a minute, to keep relative times ("in 5 min") fresh.
+    pub fn tick_calendar(&self) {
+        self.calendar.tick();
     }
 
     pub fn on_todo(&self, view: &crate::todo::View) {
@@ -534,6 +574,9 @@ impl Island {
             pages.push(("music", EXPANDED_MUSIC));
         } else {
             pages.push(("idle", EXPANDED_IDLE));
+        }
+        if self.features.calendar {
+            pages.push(("calendar", EXPANDED_CALENDAR));
         }
         if self.features.water {
             pages.push(("water", EXPANDED_WATER));

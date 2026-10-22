@@ -13,7 +13,7 @@ use gtk::{gdk, gio, glib, Application, ApplicationWindow};
 use crate::cards::peek::{Kind, Peek};
 use crate::config::Config;
 use crate::island::{self, Island};
-use crate::services::{bluez, claude, lyrics, mpris, upower};
+use crate::services::{bluez, calendar, claude, lyrics, mpris, upower};
 use crate::{settings, theme, todo, water, window};
 
 /// A dock connect fires several monitor changes in a row; act once it settles.
@@ -26,6 +26,10 @@ struct Hub {
     config: RefCell<Config>,
     water: RefCell<Option<Rc<water::Water>>>,
     todo: RefCell<Option<Rc<todo::Todo>>>,
+    /// Upcoming meetings (sorted), and which ones were already announced.
+    meetings: RefCell<Vec<calendar::Meeting>>,
+    reminded: RefCell<std::collections::HashSet<String>>,
+    reminder: RefCell<Option<glib::SourceId>>,
     settings: RefCell<Option<glib::WeakRef<gtk::Window>>>,
     /// Replayed to islands created later (a monitor plugged in mid-song).
     last_track: RefCell<Option<mpris::Update>>,
@@ -67,6 +71,8 @@ pub fn build(app: &Application) {
     let (settings_tx, settings_rx) = async_channel::unbounded();
     let (claude_tx, claude_rx) = async_channel::unbounded();
     let (answer_tx, answer_rx) = async_channel::unbounded();
+    let (cal_tx, cal_rx) = async_channel::unbounded();
+    let calendar_months = calendar::spawn(cal_tx);
     let (todo_tx, todo_rx) = async_channel::unbounded();
     claude::spawn(claude_tx);
     // Services always run (they idle on D-Bus signals at no cost); whether
@@ -85,10 +91,14 @@ pub fn build(app: &Application) {
             open_settings: settings_tx,
             claude_answers: answer_tx,
             todo_commands: todo_tx,
+            calendar_months,
             features: config.features.clone(),
         }),
         water: RefCell::default(),
         todo: RefCell::default(),
+        meetings: RefCell::default(),
+        reminded: RefCell::default(),
+        reminder: RefCell::default(),
         settings: RefCell::default(),
         config: RefCell::new(config.clone()),
         last_track: RefCell::default(),
@@ -128,14 +138,39 @@ pub fn build(app: &Application) {
             config.save();
         }
     });
-    let h = Rc::downgrade(&hub);
-    let t = Rc::new(todo::Todo::new(move |view| {
-        if let Some(hub) = h.upgrade() {
-            hub.each(|i| i.on_todo(&view));
-        }
-    }));
+    let (h1, h2) = (Rc::downgrade(&hub), Rc::downgrade(&hub));
+    let t = todo::Todo::new(
+        move |view| {
+            if let Some(hub) = h1.upgrade() {
+                hub.each(|i| i.on_todo(&view));
+            }
+        },
+        move |peek| {
+            if let Some(hub) = h2.upgrade() {
+                if hub.config.borrow().features.todo {
+                    hub.each(|i| i.on_peek(peek.clone()));
+                }
+            }
+        },
+    );
     hub.todo.replace(Some(t.clone()));
     forward(todo_rx, move |cmd| t.handle(cmd));
+
+    let h = Rc::downgrade(&hub);
+    forward(cal_rx, move |update| {
+        let Some(hub) = h.upgrade() else { return };
+        match update {
+            calendar::Update::Upcoming(meetings) => {
+                hub.meetings.replace(meetings);
+                hub.schedule_reminder();
+            }
+            calendar::Update::Month {
+                year,
+                month,
+                events,
+            } => hub.each(|i| i.on_month(year, month, &events)),
+        }
+    });
 
     // Once a minute keeps "next in N min" current and rolls the day over
     // (water log, and yesterday's done tasks leaving the list).
@@ -149,6 +184,7 @@ pub fn build(app: &Application) {
         if let Some(t) = todo {
             t.publish();
         }
+        hub.each(|i| i.tick_calendar());
     });
 
     let Some(display) = gdk::Display::default() else {
@@ -312,6 +348,63 @@ impl Hub {
         self.next_claude();
     }
 
+    /// Arms one timer for the next meeting reminder; it re-arms itself.
+    fn schedule_reminder(self: &Rc<Self>) {
+        if let Some(id) = self.reminder.take() {
+            id.remove();
+        }
+        let before = i64::from(self.config.borrow().calendar.remind_before_min) * 60;
+        let now = glib::DateTime::now_local().map_or(0, |t| t.to_unix());
+        let next = self
+            .meetings
+            .borrow()
+            .iter()
+            .filter(|m| m.start > now && !self.reminded.borrow().contains(&m.id))
+            .map(|m| (m.start - before).max(now))
+            .min();
+        let Some(at) = next else { return };
+        let wait = u32::try_from((at - now).max(1)).unwrap_or(u32::MAX);
+        let weak = Rc::downgrade(self);
+        let id = glib::timeout_add_seconds_local_once(wait, move || {
+            if let Some(hub) = weak.upgrade() {
+                hub.reminder.take();
+                hub.remind_due();
+                hub.schedule_reminder();
+            }
+        });
+        self.reminder.replace(Some(id));
+    }
+
+    fn remind_due(&self) {
+        let before = i64::from(self.config.borrow().calendar.remind_before_min) * 60;
+        let now = glib::DateTime::now_local().map_or(0, |t| t.to_unix());
+        let due: Vec<calendar::Meeting> = self
+            .meetings
+            .borrow()
+            .iter()
+            .filter(|m| m.start > now && m.start - before <= now)
+            .filter(|m| !self.reminded.borrow().contains(&m.id))
+            .cloned()
+            .collect();
+        for m in due {
+            self.reminded.borrow_mut().insert(m.id.clone());
+            if !self.config.borrow().features.calendar {
+                continue;
+            }
+            let peek = Peek {
+                kind: Kind::Meeting,
+                title: m.title.clone(),
+                subtitle: format!(
+                    "{} · {}",
+                    crate::cards::calendar::relative(m.start, m.end, now),
+                    crate::cards::calendar::clock(m.start)
+                ),
+                percent: None,
+            };
+            self.each(|i| i.on_peek(peek.clone()));
+        }
+    }
+
     fn open_settings(self: &Rc<Self>) {
         if let Some(window) = self.settings.borrow().as_ref().and_then(|w| w.upgrade()) {
             window.present();
@@ -435,6 +528,7 @@ impl Hub {
         if let Some(t) = self.todo.borrow().as_ref() {
             island.on_todo(&t.view());
         }
+
         // Catch up on what's already playing.
         for update in [&self.last_track, &self.last_art] {
             if let Some(u) = update.borrow().clone() {
@@ -442,6 +536,13 @@ impl Hub {
             }
         }
         let i = island.clone();
+        if let Ok(page) = std::env::var("ATOLL_SHOW") {
+            let i = island.clone();
+            // After the first frame, so the expand animation has a clock.
+            glib::timeout_add_local_once(Duration::from_millis(600), move || {
+                i.show_for_debugging(&page);
+            });
+        }
         // Ends by itself when the window's X thread exits and drops the sender.
         forward(hover_rx, move |event| i.on_pointer(event));
         Some((island, window))

@@ -15,6 +15,22 @@ pub struct Config {
     pub theme: Theme,
     pub water: Water,
     pub commands: Commands,
+    pub calendar: Calendar,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Calendar {
+    /// Peek this many minutes before a meeting starts.
+    pub remind_before_min: u32,
+}
+
+impl Default for Calendar {
+    fn default() -> Self {
+        Self {
+            remind_before_min: 5,
+        }
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -45,6 +61,8 @@ pub struct Features {
     pub todo: bool,
     /// Peek when a long terminal command finishes (needs the shell line).
     pub command_peek: bool,
+    /// Next meetings from GNOME Online Accounts (Google Calendar).
+    pub calendar: bool,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -82,6 +100,7 @@ impl Default for Features {
             claude: true,
             todo: true,
             command_peek: true,
+            calendar: true,
         }
     }
 }
@@ -167,6 +186,7 @@ impl Config {
         w.active_from_hour = w.active_from_hour.min(23);
         w.active_to_hour = w.active_to_hour.clamp(w.active_from_hour + 1, 24);
         self.commands.min_seconds = self.commands.min_seconds.clamp(3, 3600);
+        self.calendar.remind_before_min = self.calendar.remind_before_min.clamp(1, 60);
         self
     }
 }
