@@ -1,0 +1,216 @@
+/* Palette (CLAUDE.md). Use these names; never hard-code hex below. */
+@define-color bg #282A36;
+@define-color bg_raised #44475A;
+@define-color text #F2EEFF;
+@define-color lavender #C9B8FF;
+@define-color pink #FF8FB1;
+@define-color purple #BD93F9;
+@define-color muted #6272A4;
+
+/* Clear the theme's window background; the notch shape is drawn in island.rs. */
+window {
+  background: transparent;
+  box-shadow: none;
+}
+
+window * {
+  font-family: "Ubuntu";
+  color: @text;
+}
+
+/* Small caps-style labels, like the desktop's widgets. */
+.caps {
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 2px;
+}
+.lavender { color: @lavender; }
+.muted { color: @muted; }
+.accent { color: @pink; }
+
+.icon {
+  font-family: "Symbols Nerd Font";
+  font-size: 13px;
+}
+
+/* Collapsed notch */
+.collapsed {
+  padding: 0 14px;
+}
+.clock {
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  font-feature-settings: "tnum"; /* digits don't shift as minutes change */
+}
+
+/* Expanded: nothing playing */
+.idle-card {
+  padding: 30px 24px 14px;
+}
+.big-clock {
+  font-family: "JetBrainsMono Nerd Font Mono";
+  font-size: 26px;
+  font-weight: 300;
+  letter-spacing: 2px;
+}
+.idle-card .caps { margin-top: 4px; }
+
+/* Expanded: music */
+.player {
+  padding: 16px 24px 12px;
+}
+.card-top {
+  min-height: 26px;
+}
+.date {
+  font-size: 13px;
+  color: @text;
+}
+.art {
+  border-radius: 12px;
+  background-color: @bg_raised;
+}
+.title {
+  font-size: 18px;
+  font-weight: 500;
+}
+.subtitle {
+  font-size: 13px;
+  font-weight: 300;
+  color: @lavender;
+}
+.bar {
+  margin-top: 14px;
+}
+.time {
+  font-family: "JetBrainsMono Nerd Font Mono";
+  font-size: 12px;
+  color: @text;
+  min-width: 40px;
+}
+.controls {
+  margin-top: 6px;
+}
+
+/* Lyrics panel, right of the player in lyrics mode. */
+.lyrics {
+  padding: 0 30px 0 26px;
+  margin: 18px 0 16px;
+  border-left: 1px solid alpha(@bg_raised, 0.9);
+}
+.lyric {
+  font-size: 17px;
+  font-weight: 500;
+  color: alpha(@lavender, 0.45);
+}
+.lyric-current {
+  font-size: 21px;
+  font-weight: 700;
+  color: @text;
+}
+
+/* Peeks: short notifications (bluetooth, charger). */
+/* Centered in the whole notch: a peek has no buttons, so it doesn't need
+   to stay clear of the bar's click area. */
+.peek {
+  padding: 0 28px 0 24px;
+}
+.peek-icon {
+  -gtk-icon-size: 16px;
+  color: @text;
+}
+.peek-title {
+  font-size: 16px;
+  font-weight: 700;
+}
+.peek-subtitle {
+  font-size: 12px;
+  color: @lavender;
+}
+.peek-percent {
+  font-size: 28px;
+  font-weight: 300;
+}
+.peek-badge {
+  -gtk-icon-size: 18px;
+  min-width: 40px;
+  min-height: 40px;
+  border-radius: 999px;
+  background-color: alpha(@bg_raised, 0.8);
+  box-shadow: inset 0 0 0 2px alpha(@lavender, 0.5);
+  color: @text;
+}
+
+/* Seekable timeline: a thin pink line whose handle appears on hover. */
+scale {
+  padding: 8px 0; /* taller hit area than the 4px line */
+  margin: 0;
+}
+scale trough {
+  min-height: 4px;
+  border-radius: 2px;
+  border: none;
+  background-color: alpha(@bg_raised, 0.9);
+}
+scale highlight {
+  min-height: 4px;
+  border-radius: 2px;
+  border: none;
+  background-color: @pink;
+}
+scale slider {
+  min-width: 12px;
+  min-height: 12px;
+  margin: -4px;
+  border: none;
+  border-radius: 999px;
+  box-shadow: none;
+  background-color: @text;
+  opacity: 0;
+  transition: opacity 150ms ease-out;
+}
+scale:hover slider,
+scale:active slider {
+  opacity: 1;
+}
+
+/* Controls: flat glyphs; the theme's button chrome would look foreign here. */
+button.control {
+  -gtk-icon-size: 20px;
+  min-width: 34px;
+  min-height: 34px;
+  padding: 0;
+  margin-top: 6px;
+  border: none;
+  border-radius: 999px;
+  background: none;
+  box-shadow: none;
+  color: @text;
+  transition: background-color 150ms ease-out, color 150ms ease-out;
+}
+/* Round secondary buttons (lyrics, pin) with a bundled symbolic icon. */
+button.control.round {
+  background-color: alpha(@bg_raised, 0.7);
+  color: @lavender;
+  -gtk-icon-size: 18px;
+}
+button.control.round.on {
+  background-color: alpha(@pink, 0.18);
+  color: @pink;
+}
+button.control:hover {
+  background-color: alpha(@bg_raised, 0.9);
+}
+button.control.primary {
+  -gtk-icon-size: 22px;
+  background-color: @pink;
+  color: @bg;
+}
+/* `window *` colors every widget; icons must follow their button instead. */
+button.control image {
+  color: inherit;
+}
+button.control.primary:hover {
+  background-color: @lavender;
+}
