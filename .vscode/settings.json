@@ -1,6 +1,0 @@
-{
-  // VS Code may have been started before rustup put ~/.cargo/bin on PATH.
-  "lldb.cargo": "/home/odoo/.cargo/bin/cargo",
-  // Pretty-print Rust types (String, Vec, Option) in the variables pane.
-  "lldb.launch.sourceLanguages": ["rust"]
-}

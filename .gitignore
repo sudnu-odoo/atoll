@@ -1,1 +1,4 @@
 /target
+
+# Editor setup is per machine (paths like ~/.cargo/bin/cargo)
+/.vscode/
