@@ -114,6 +114,10 @@ impl MusicCard {
                 .halign(Align::Start)
                 .xalign(0.0)
                 .ellipsize(gtk::pango::EllipsizeMode::End)
+                // A small natural width: a long title then ellipsizes in its
+                // column instead of widening the player over the lyrics.
+                .max_width_chars(1)
+                .hexpand(true)
                 .build()
         };
         let title = text_label("title");

@@ -32,6 +32,8 @@ pub const COLLAPSED: (f64, f64) = (250.0, 32.0);
 // Expanded cards keep a 52px margin each side (see style.css) for the page
 // arrows and the settings button, with room to spare around them.
 // Cards end ~10px above the bottom edge, leaving a strip for the page dots.
+/// How long "no track" must last before the music card goes away.
+const MUSIC_GONE_GRACE: std::time::Duration = std::time::Duration::from_secs(2);
 pub const EXPANDED_MUSIC: (f64, f64) = (568.0, 206.0);
 pub const EXPANDED_LYRICS: (f64, f64) = (868.0, 206.0);
 pub const EXPANDED_WATER: (f64, f64) = (568.0, 206.0);
@@ -40,7 +42,7 @@ pub const EXPANDED_TODO: (f64, f64) = (568.0, 206.0);
 pub const EXPANDED_CALENDAR: (f64, f64) = (568.0, 252.0);
 pub const EXPANDED_SHELF: (f64, f64) = (568.0, 206.0);
 pub const EXPANDED_CONTROLS: (f64, f64) = (568.0, 206.0);
-pub const EXPANDED_NOTIFICATIONS: (f64, f64) = (568.0, 206.0);
+pub const EXPANDED_NOTIFICATIONS: (f64, f64) = (568.0, 260.0);
 /// Claude prompts: fixed width, height grows with the content up to
 /// CLAUDE_MAX_H (long questions, many options).
 pub const EXPANDED_CLAUDE: (f64, f64) = (600.0, 206.0);
@@ -165,6 +167,9 @@ pub struct Island {
     /// Pinned: stays open when the pointer leaves, e.g. to read lyrics while
     /// working.
     pinned: Cell<bool>,
+    /// Pending "music stopped": players report no track for a moment
+    /// between songs, which must not close or unpin the card.
+    music_gone: RefCell<Option<glib::SourceId>>,
     hovered: Cell<bool>,
     fullscreen: Cell<bool>,
     /// The card the current peek belongs to, opened if the peek is hovered.
@@ -391,6 +396,7 @@ impl Island {
             hit,
             lyrics_mode: Cell::new(false),
             pinned: Cell::new(false),
+            music_gone: RefCell::new(None),
             hovered: Cell::new(false),
             fullscreen: Cell::new(false),
             peek_page: Cell::new(None),
@@ -641,6 +647,9 @@ impl Island {
         }
         match update {
             Update::Track(Some(np)) => {
+                if let Some(id) = self.music_gone.take() {
+                    id.remove();
+                }
                 if self.art_url.borrow().as_ref() != np.art_url.as_ref() {
                     self.art_url.replace(np.art_url.clone());
                     self.set_art(None);
@@ -656,14 +665,17 @@ impl Island {
                 self.set_has_music(true);
             }
             Update::Track(None) => {
-                self.art_url.replace(None);
-                self.set_art(None);
-                self.collapsed.set_track(None);
-                self.lyrics_key.replace(None);
-                self.set_has_music(false);
-                if self.pinned.get() {
-                    self.toggle_pin();
+                if self.music_gone.borrow().is_some() || !self.has_music.get() {
+                    return;
                 }
+                let weak = Rc::downgrade(self);
+                let id = glib::timeout_add_local_once(MUSIC_GONE_GRACE, move || {
+                    if let Some(island) = weak.upgrade() {
+                        island.music_gone.take();
+                        island.music_stopped();
+                    }
+                });
+                self.music_gone.replace(Some(id));
             }
             Update::Art { url, bytes } => {
                 // Ignore covers that arrive after the track already changed.
@@ -740,6 +752,17 @@ impl Island {
 
     fn set_art(&self, art: Option<&gdk::Texture>) {
         self.music.set_art(art);
+    }
+
+    fn music_stopped(self: &Rc<Self>) {
+        self.art_url.replace(None);
+        self.set_art(None);
+        self.collapsed.set_track(None);
+        self.lyrics_key.replace(None);
+        self.set_has_music(false);
+        if self.pinned.get() {
+            self.toggle_pin();
+        }
     }
 
     fn set_has_music(self: &Rc<Self>, has: bool) {

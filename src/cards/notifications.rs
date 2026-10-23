@@ -11,6 +11,9 @@ use gtk::{gio, glib, Align, Label, Orientation};
 use super::{control_button, live_clock};
 use crate::services::notifications::Notification;
 
+/// Taller than the other cards' bodies: chat messages need room to read.
+const LIST_H: i32 = 186;
+
 pub struct NotificationsCard {
     pub root: gtk::Box,
     list: gtk::Box,
@@ -64,8 +67,8 @@ impl NotificationsCard {
         // Long lists scroll; scrolling here doesn't flip cards.
         let scroller = gtk::ScrolledWindow::builder()
             .hscrollbar_policy(gtk::PolicyType::Never)
-            .min_content_height(132)
-            .max_content_height(132)
+            .min_content_height(LIST_H)
+            .max_content_height(LIST_H)
             .child(&list)
             .build();
 
@@ -123,7 +126,7 @@ fn row(n: &Notification, now: i64, on_clear: Rc<dyn Fn(Option<u64>)>) -> gtk::Bu
         .xalign(0.0)
         .hexpand(true)
         .ellipsize(gtk::pango::EllipsizeMode::End)
-        .css_classes(["cal-event-title"])
+        .css_classes(["notif-title"])
         .build();
     let text = gtk::Box::builder()
         .orientation(Orientation::Vertical)
@@ -160,7 +163,7 @@ fn row(n: &Notification, now: i64, on_clear: Rc<dyn Fn(Option<u64>)>) -> gtk::Bu
                 .label(n.body.replace('\n', " "))
                 .xalign(0.0)
                 .wrap(true)
-                .lines(2)
+                .lines(3)
                 .ellipsize(gtk::pango::EllipsizeMode::End)
                 .max_width_chars(60)
                 .css_classes(["notif-body"])
