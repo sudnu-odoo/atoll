@@ -124,6 +124,13 @@ window.island {
   font-weight: 700;
   color: @text;
 }
+/* Room for an English line under each one. */
+.translated .lyric {
+  font-size: 13px;
+}
+.translated .lyric-current {
+  font-size: 19px;
+}
 
 /* Water card */
 /* Same top padding as the music card, so every card's top row (and the
@@ -838,6 +845,23 @@ button.qs-item.active {
 .qs-check {
   -gtk-icon-size: 16px;
   color: @pink;
+}
+/* Connecting: the row pulses softly so the wait reads as progress. */
+button.qs-item.busy {
+  background-color: alpha(@purple, 0.14);
+  animation: qs-busy 1.2s ease-in-out infinite alternate;
+}
+button.qs-item.busy .qs-subtitle {
+  color: @purple;
+}
+@keyframes qs-busy {
+  from { background-color: alpha(@purple, 0.08); }
+  to { background-color: alpha(@purple, 0.22); }
+}
+.qs-spinner {
+  min-width: 16px;
+  min-height: 16px;
+  color: @purple;
 }
 
 .notif-body {

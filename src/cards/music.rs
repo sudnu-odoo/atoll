@@ -367,6 +367,9 @@ impl MusicCard {
     }
 
     pub fn set_lyrics(&self, lyrics: Lyrics) {
+        let translated = matches!(&lyrics, Lyrics::Lines(lines)
+            if lines.iter().any(|l| l.translation.is_some()));
+        self.lyrics_view.set_translated(translated);
         self.lyrics.replace(lyrics);
         self.refresh();
     }
@@ -447,7 +450,7 @@ impl MusicCard {
                     usize::try_from(i)
                         .ok()
                         .and_then(|i| lines.get(i))
-                        .map(|l| l.text.as_str())
+                        .map(|l| (l.text.as_str(), l.translation.as_deref()))
                 });
             }
         }

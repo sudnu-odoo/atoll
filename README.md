@@ -23,11 +23,35 @@ If the Claude Code hooks in `~/.claude/settings.json` or the shell snippet in
 switches them to the installed binary. It keeps a `.bak` copy of the Claude
 settings first.
 
+### Optional: Atoll Bridge (GNOME extension)
+
+Only GNOME Shell can open a notification exactly the way its banner does,
+for example straight into the right Discord chat. `install.sh` copies a
+small extension for this, but doesn't enable it. Without it, clicking a
+notification in Atoll brings the app forward instead.
+
+The extension adds one D-Bus method and nothing else: no UI, no timers. Every
+path is guarded so it never throws into the Shell. To turn it on, log out and
+back in, then run:
+
+```bash
+gnome-extensions enable atoll-bridge@atoll.dev
+```
+
+To turn it off, run `gnome-extensions disable atoll-bridge@atoll.dev`.
+
+### Start at login
+
 To start Atoll at login, open Settings and turn on **General → Start at
 login**. This writes `~/.config/autostart/atoll.desktop`, and turning the
 switch off removes it.
 
-To uninstall, run `./install.sh --uninstall`. Your settings and data stay in
+To switch Atoll off without quitting it, use **General → Active**. The
+notch goes away and GNOME's banners come back until you switch it on again
+(from the app menu entry, or `atoll --settings`).
+
+To uninstall, run `./install.sh --uninstall`. This also removes the
+extension. Your settings and data stay in
 `~/.config/atoll` and `~/.local/share/atoll`.
 
 ## Use

@@ -74,6 +74,9 @@ pub fn build(app: &Application) {
     }
     let config = Config::load();
     theme::apply(&config.theme);
+    // Switched off in Settings, Atoll has no windows yet must keep running
+    // (to be switched back on); the hold lasts for the whole process.
+    std::mem::forget(app.hold());
 
     let (music_tx, music_rx) = async_channel::unbounded();
     let (lyrics_tx, lyrics_rx) = async_channel::unbounded();
@@ -94,7 +97,7 @@ pub fn build(app: &Application) {
     notifications::spawn(notif_tx);
     // GNOME's banners follow the setting; this also repairs them after a
     // crash, when the setting is now off but Atoll had hidden them.
-    if config.features.notifications {
+    if config.hides_banners() {
         banners::hide();
     } else {
         banners::restore();
@@ -342,9 +345,11 @@ impl Hub {
         }
         // Switched off: dropping the request (no reply) leaves Claude Code
         // to show its own prompt.
-        if !self.config.borrow().features.claude {
+        let config = self.config.borrow();
+        if config.paused || !config.features.claude {
             return;
         }
+        drop(config);
         match &incoming.request {
             claude::Request::Finished { message, project } => {
                 let peek = claude_peek("Claude finished", message, project);
@@ -520,12 +525,16 @@ impl Hub {
         if old.autostart != new.autostart {
             autostart::apply(new.autostart);
         }
-        if old.features.notifications != new.features.notifications {
-            if new.features.notifications {
+        if old.hides_banners() != new.hides_banners() {
+            if new.hides_banners() {
                 banners::hide();
             } else {
                 banners::restore();
             }
+        }
+        if old.paused != new.paused {
+            tracing::info!("atoll {}", if new.paused { "off" } else { "on" });
+            self.rebuild_islands();
         }
         if format!("{:?}", old.features) != format!("{:?}", new.features) {
             self.deps.borrow_mut().features = new.features.clone();
@@ -576,7 +585,10 @@ impl Hub {
 
     /// Makes the set of islands match the connected monitors.
     fn reconcile(self: &Rc<Self>, list: &gio::ListModel) {
+        // Switched off: every island goes, as if no monitor were there.
+        let paused = self.config.borrow().paused;
         let connectors: Vec<String> = (0..list.n_items())
+            .filter(|_| !paused)
             .filter_map(|i| list.item(i).and_downcast::<gdk::Monitor>())
             .filter_map(|m| m.connector().map(|c| c.to_string()))
             .collect();

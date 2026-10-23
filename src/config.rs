@@ -11,6 +11,9 @@ const FILE: &str = "config.json";
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Config {
+    /// Atoll switched off in Settings: no notch anywhere, GNOME's banners
+    /// back. Stored as "paused" so files without the key mean on.
+    pub paused: bool,
     /// Start Atoll at login (~/.config/autostart/atoll.desktop).
     pub autostart: bool,
     pub features: Features,
@@ -54,6 +57,8 @@ impl Default for Commands {
 pub struct Features {
     pub music: bool,
     pub lyrics: bool,
+    /// English lines under foreign lyrics (sends lyric text to Google).
+    pub translate_lyrics: bool,
     pub eyes: bool,
     pub water: bool,
     /// Claude Code prompts and peeks (needs the hooks installed).
@@ -108,11 +113,19 @@ pub struct Water {
     pub active_to_hour: u32,
 }
 
+impl Config {
+    /// Notifications take over GNOME's banners only while Atoll is on.
+    pub fn hides_banners(&self) -> bool {
+        !self.paused && self.features.notifications
+    }
+}
+
 impl Default for Features {
     fn default() -> Self {
         Self {
             music: true,
             lyrics: true,
+            translate_lyrics: false,
             eyes: true,
             water: true,
             claude: true,

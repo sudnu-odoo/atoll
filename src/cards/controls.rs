@@ -53,6 +53,9 @@ pub struct ControlsCard {
     state: RefCell<State>,
     /// The user is dragging a slider: don't move it from under them.
     adjusting: Cell<bool>,
+    /// A picked item is connecting (Bluetooth can take seconds): further
+    /// picks wait until the service reports back with a fresh list.
+    busy: Rc<Cell<bool>>,
 }
 
 impl ControlsCard {
@@ -202,6 +205,7 @@ impl ControlsCard {
             on_typing: Rc::new(on_typing),
             state: RefCell::default(),
             adjusting: Cell::new(false),
+            busy: Rc::default(),
         });
         card.connect(&back, &join);
         card.update(&State::default());
@@ -501,6 +505,9 @@ impl ControlsCard {
     }
 
     fn fill_menu(&self, menu: Menu, items: &[MenuItem]) {
+        // The service answers a pick only once it's done, so a new list
+        // means the connection attempt is over.
+        self.busy.set(false);
         while let Some(child) = self.menu_list.first_child() {
             self.menu_list.remove(&child);
         }
@@ -531,17 +538,20 @@ impl ControlsCard {
                     .css_classes(["cal-event-title"])
                     .build(),
             );
-            if !item.detail.is_empty() {
-                text.append(
-                    &Label::builder()
-                        .label(&item.detail)
-                        .xalign(0.0)
-                        .css_classes(["qs-subtitle"])
-                        .build(),
-                );
-            }
+            let detail = Label::builder()
+                .label(&item.detail)
+                .xalign(0.0)
+                .css_classes(["qs-subtitle"])
+                .visible(!item.detail.is_empty())
+                .build();
+            text.append(&detail);
             let content = gtk::Box::builder().spacing(8).build();
             content.append(&text);
+            let spinner = gtk::Spinner::builder()
+                .visible(false)
+                .css_classes(["qs-spinner"])
+                .build();
+            content.append(&spinner);
             if item.active {
                 let check = gtk::Image::from_icon_name("atoll-check-symbolic");
                 check.add_css_class("qs-check");
@@ -558,12 +568,33 @@ impl ControlsCard {
                 .can_focus(false)
                 .build();
             row.set_cursor_from_name(Some("pointer"));
-            let (tx, id) = (self.commands.clone(), item.id.clone());
-            row.connect_clicked(move |_| {
+            let (tx, id, busy) = (self.commands.clone(), item.id.clone(), self.busy.clone());
+            let pending = pending_text(menu, item.active);
+            row.connect_clicked(move |row| {
+                if busy.replace(true) {
+                    return;
+                }
+                if let Some(text) = pending {
+                    detail.set_label(text);
+                    detail.set_visible(true);
+                    spinner.set_visible(true);
+                    spinner.start();
+                    row.add_css_class("busy");
+                }
                 let _ = tx.try_send(Command::Pick(menu, id.clone()));
             });
             self.menu_list.append(&row);
         }
+    }
+}
+
+/// What a row says while its pick is in progress; quick picks (sound
+/// output, power mode) show nothing.
+fn pending_text(menu: Menu, active: bool) -> Option<&'static str> {
+    match (menu, active) {
+        (Menu::Bluetooth | Menu::Wifi, false) => Some("Connecting…"),
+        (Menu::Bluetooth, true) => Some("Disconnecting…"),
+        _ => None,
     }
 }
 

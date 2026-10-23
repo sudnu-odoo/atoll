@@ -1,6 +1,7 @@
 //! Notifications card: recent notifications, newest first. Clicking one
-//! brings its app forward (GNOME Shell alone can run a notification's own
-//! actions). Clear empties the list.
+//! opens it through the Atoll Bridge extension when installed (exactly like
+//! GNOME's banner); otherwise it runs a GTK app's own action, or brings the
+//! app forward. Clear empties the list.
 
 use std::rc::Rc;
 
@@ -172,23 +173,30 @@ fn row(n: &Notification, now: i64) -> gtk::Button {
         .can_focus(false)
         .build();
     button.set_cursor_from_name(Some("pointer"));
-    let (click, app) = (n.click.clone(), app_for(n));
+    let (click, app, n) = (n.click.clone(), app_for(n), n.clone());
     button.connect_clicked(move |_| {
-        use crate::services::notifications::{activate_app_action, Click};
-        match &click {
-            Click::AppAction {
-                app_id,
-                action,
-                target,
-            } => activate_app_action(app_id.clone(), action.clone(), target.clone()),
-            Click::OpenApp => {
-                if let Some(app) = &app {
-                    if let Err(e) = app.launch(&[], None::<&gio::AppLaunchContext>) {
-                        tracing::warn!("cannot open app: {e}");
+        use crate::services::notifications::{activate_app_action, activate_via_shell, Click};
+        let (click, app) = (click.clone(), app.clone());
+        let answer = activate_via_shell(&n);
+        glib::spawn_future_local(async move {
+            if answer.recv().await == Ok(true) {
+                return;
+            }
+            match &click {
+                Click::AppAction {
+                    app_id,
+                    action,
+                    target,
+                } => activate_app_action(app_id.clone(), action.clone(), target.clone()),
+                Click::OpenApp => {
+                    if let Some(app) = &app {
+                        if let Err(e) = app.launch(&[], None::<&gio::AppLaunchContext>) {
+                            tracing::warn!("cannot open app: {e}");
+                        }
                     }
                 }
             }
-        }
+        });
     });
     button
 }

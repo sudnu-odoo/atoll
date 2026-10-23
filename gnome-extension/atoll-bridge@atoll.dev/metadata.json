@@ -1,0 +1,7 @@
+{
+  "uuid": "atoll-bridge@atoll.dev",
+  "name": "Atoll Bridge",
+  "description": "Lets Atoll open a notification the way clicking GNOME's own banner does (e.g. the exact Discord chat). Exports one D-Bus method; does nothing else.",
+  "shell-version": ["46"],
+  "version": 1
+}

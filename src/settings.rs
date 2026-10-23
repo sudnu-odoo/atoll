@@ -51,14 +51,24 @@ pub fn open(
         .build();
     content.append(&section(
         "General",
-        &[switch(
-            &state,
-            &on_change,
-            "Start at login",
-            "Open Atoll automatically when you log in",
-            |c| c.autostart,
-            |c, v| c.autostart = v,
-        )],
+        &[
+            switch(
+                &state,
+                &on_change,
+                "Active",
+                "Show the notch. When off, Atoll stays out of the way until switched back on here",
+                |c| !c.paused,
+                |c, v| c.paused = !v,
+            ),
+            switch(
+                &state,
+                &on_change,
+                "Start at login",
+                "Open Atoll automatically when you log in",
+                |c| c.autostart,
+                |c, v| c.autostart = v,
+            ),
+        ],
     ));
     content.append(&features_section(&state, &on_change));
     content.append(&order_section(&state, &on_change, &refresh_order));
@@ -231,6 +241,14 @@ fn features_section(state: &Rc<RefCell<Config>>, on_change: &OnChange) -> gtk::B
         |c| c.features.lyrics,
         |c, v| c.features.lyrics = v,
     );
+    let translate = switch(
+        state,
+        on_change,
+        "Translate lyrics",
+        "English lines under songs in other languages (sends the lyrics to Google Translate)",
+        |c| c.features.translate_lyrics,
+        |c, v| c.features.translate_lyrics = v,
+    );
     let water = switch_with(
         state,
         on_change,
@@ -240,7 +258,7 @@ fn features_section(state: &Rc<RefCell<Config>>, on_change: &OnChange) -> gtk::B
         |c, v| c.features.water = v,
     );
     let rows = [
-        feature(music, &[lyrics]),
+        feature(music, &[lyrics, translate]),
         switch(
             state,
             on_change,

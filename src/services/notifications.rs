@@ -80,6 +80,40 @@ pub fn activate_app_action(
         });
 }
 
+/// Asks the optional Atoll Bridge extension (gnome-extension/) to open the
+/// notification exactly as GNOME's banner would, e.g. the right Discord chat.
+/// Answers `false` when the extension isn't there or the notification is
+/// gone from GNOME's list; the caller then falls back.
+pub fn activate_via_shell(n: &Notification) -> async_channel::Receiver<bool> {
+    let (tx, rx) = async_channel::bounded(1);
+    let args = (n.app.clone(), n.title.clone(), n.body.clone());
+    let spawned = std::thread::Builder::new()
+        .name("notif-bridge".into())
+        .spawn(move || {
+            let result = (|| -> zbus::Result<bool> {
+                let conn = zbus::blocking::Connection::session()?;
+                conn.call_method(
+                    Some("org.gnome.Shell"),
+                    "/dev/atoll/Bridge",
+                    Some("dev.atoll.Bridge"),
+                    "ActivateNotification",
+                    &args,
+                )?
+                .body()
+                .deserialize()
+            })();
+            let found = result.unwrap_or_else(|e| {
+                tracing::debug!("atoll bridge unavailable: {e}");
+                false
+            });
+            let _ = tx.send_blocking(found);
+        });
+    if let Err(e) = spawned {
+        tracing::warn!("cannot start bridge thread: {e}");
+    }
+    rx
+}
+
 /// Where a notification's picture comes from, as plain data (the UI turns
 /// it into an icon; GTK objects can't come from this thread).
 #[derive(Clone, Debug)]

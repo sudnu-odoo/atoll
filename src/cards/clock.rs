@@ -13,7 +13,8 @@ use super::{every_minute, live_clock};
 use crate::services::mpris::NowPlaying;
 
 /// The eyes own the center; the time takes a turn this long at each new
-/// minute (and when the mood changes).
+/// minute (and when the mood changes). While music plays they simply take
+/// turns, this long each.
 const TIME_TURN: Duration = Duration::from_secs(5);
 const CROSSFADE_MS: u32 = 350;
 
@@ -111,19 +112,30 @@ impl Collapsed {
         }
     }
 
-    /// Shows the time now; if idle, hands back to the eyes after a while.
+    /// Shows the time now, then hands back to the eyes after a while.
     fn time_turn(self: &Rc<Self>) {
+        self.show_turn("time", TIME_TURN);
+    }
+
+    fn show_turn(self: &Rc<Self>, page: &'static str, after: Duration) {
         if let Some(id) = self.turn.take() {
             id.remove();
         }
-        self.center.set_visible_child_name("time");
+        self.center.set_visible_child_name(page);
         if !self.eyes_enabled {
             return;
         }
         let weak = Rc::downgrade(self);
-        let id = glib::timeout_add_local_once(TIME_TURN, move || {
-            if let Some(c) = weak.upgrade() {
-                c.turn.take();
+        let id = glib::timeout_add_local_once(after, move || {
+            let Some(c) = weak.upgrade() else { return };
+            c.turn.take();
+            if page == "eyes" {
+                c.time_turn();
+            } else if c.mood.get() == Some(Mood::Excited) {
+                // Playing: the eyes get the same turn, then the time again.
+                c.show_turn("eyes", TIME_TURN);
+            } else {
+                // Idle: the eyes stay until the next minute; no timer runs.
                 c.center.set_visible_child_name("eyes");
             }
         });

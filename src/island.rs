@@ -697,6 +697,7 @@ impl Island {
         let _ = self.lyrics_requests.try_send(lyrics::Request {
             key,
             length: self.length.get(),
+            translate: self.features.translate_lyrics,
         });
     }
 
