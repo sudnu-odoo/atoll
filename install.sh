@@ -51,8 +51,10 @@ gtk-update-icon-cache -q "$HOME/.local/share/icons/hicolor" 2>/dev/null || true
 # Repoint hooks and shell snippet from the dev build to the installed one.
 if [[ -f "$CLAUDE_SETTINGS" ]] && grep -qF "$DEV_BIN" "$CLAUDE_SETTINGS"; then
     cp "$CLAUDE_SETTINGS" "$CLAUDE_SETTINGS.bak"
-    sed -i "s|$DEV_BIN|$BIN|g" "$CLAUDE_SETTINGS"
-    echo "Claude Code hooks now use $BIN (backup: $CLAUDE_SETTINGS.bak)"
+    # Plain "atoll" (found on PATH) keeps working if Atoll later moves,
+    # e.g. from this script's ~/.local/bin to the .deb's /usr/bin.
+    sed -i "s|\"$DEV_BIN hook |\"atoll hook |g" "$CLAUDE_SETTINGS"
+    echo "Claude Code hooks now call atoll (backup: $CLAUDE_SETTINGS.bak)"
 fi
 if [[ -f "$SHELL_SNIPPET" ]]; then
     "$BIN" shell-init > "$SHELL_SNIPPET"
