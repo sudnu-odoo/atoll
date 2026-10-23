@@ -49,6 +49,17 @@ pub fn open(
         .css_classes(["settings-page"])
         .spacing(22)
         .build();
+    content.append(&section(
+        "General",
+        &[switch(
+            &state,
+            &on_change,
+            "Start at login",
+            "Open Atoll automatically when you log in",
+            |c| c.autostart,
+            |c, v| c.autostart = v,
+        )],
+    ));
     content.append(&features_section(&state, &on_change));
     content.append(&order_section(&state, &on_change, &refresh_order));
     content.append(&theme_section(&state, &on_change));

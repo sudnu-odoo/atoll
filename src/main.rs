@@ -1,4 +1,5 @@
 mod app;
+mod autostart;
 mod banners;
 mod cards;
 mod config;

@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Atoll
+Comment=Dynamic Island for the GNOME top bar
+Exec=@BIN@ --settings
+Icon=atoll
+Terminal=false
+Categories=Utility;
+Keywords=notch;island;music;lyrics;
+StartupNotify=false

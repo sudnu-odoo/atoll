@@ -14,7 +14,7 @@ use crate::cards::peek::{Kind, Peek};
 use crate::config::Config;
 use crate::island::{self, Island};
 use crate::services::{bluez, calendar, claude, controls, lyrics, mpris, notifications, upower};
-use crate::{banners, settings, shelf, theme, todo, water, window};
+use crate::{autostart, banners, settings, shelf, theme, todo, water, window};
 
 /// Notifications kept for the card.
 const RECENT_NOTIFICATIONS: usize = 30;
@@ -99,6 +99,7 @@ pub fn build(app: &Application) {
     } else {
         banners::restore();
     }
+    autostart::apply(config.autostart);
     claude::spawn(claude_tx);
     // Services always run (they idle on D-Bus signals at no cost); whether
     // their output is shown is decided per event, so toggling a feature in
@@ -515,6 +516,9 @@ impl Hub {
             if let Some(w) = self.water.borrow().clone() {
                 w.set_config(new.water.clone());
             }
+        }
+        if old.autostart != new.autostart {
+            autostart::apply(new.autostart);
         }
         if old.features.notifications != new.features.notifications {
             if new.features.notifications {

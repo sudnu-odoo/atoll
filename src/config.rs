@@ -11,6 +11,8 @@ const FILE: &str = "config.json";
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Config {
+    /// Start Atoll at login (~/.config/autostart/atoll.desktop).
+    pub autostart: bool,
     pub features: Features,
     pub theme: Theme,
     pub water: Water,
