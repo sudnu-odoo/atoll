@@ -14,8 +14,11 @@ use crate::cards::calendar::CalendarCard;
 use crate::cards::claude::ClaudeCard;
 use crate::cards::clock::{Collapsed, Idle};
 use crate::cards::control_button;
+use crate::cards::controls::ControlsCard;
 use crate::cards::music::{Lyrics, MusicCard};
-use crate::cards::peek::{Peek, PeekCard};
+use crate::cards::notifications::NotificationsCard;
+use crate::cards::peek::{Kind, Peek, PeekCard};
+use crate::cards::shelf::ShelfCard;
 use crate::cards::todo::{TodoCard, Typing};
 use crate::cards::water::WaterCard;
 use crate::config::Features;
@@ -24,7 +27,8 @@ use crate::services::{claude, lyrics};
 use crate::water;
 
 /// Body sizes (without the ears) for each state.
-pub const COLLAPSED: (f64, f64) = (200.0, 32.0);
+/// Wide enough to cover GNOME's whole date and time in the bar.
+pub const COLLAPSED: (f64, f64) = (250.0, 32.0);
 // Expanded cards keep a 52px margin each side (see style.css) for the page
 // arrows and the settings button, with room to spare around them.
 // Cards end ~10px above the bottom edge, leaving a strip for the page dots.
@@ -34,6 +38,9 @@ pub const EXPANDED_WATER: (f64, f64) = (568.0, 206.0);
 pub const EXPANDED_IDLE: (f64, f64) = (364.0, 128.0);
 pub const EXPANDED_TODO: (f64, f64) = (568.0, 206.0);
 pub const EXPANDED_CALENDAR: (f64, f64) = (568.0, 252.0);
+pub const EXPANDED_SHELF: (f64, f64) = (568.0, 206.0);
+pub const EXPANDED_CONTROLS: (f64, f64) = (568.0, 206.0);
+pub const EXPANDED_NOTIFICATIONS: (f64, f64) = (568.0, 206.0);
 /// Claude prompts: fixed width, height grows with the content up to
 /// CLAUDE_MAX_H (long questions, many options).
 pub const EXPANDED_CLAUDE: (f64, f64) = (600.0, 206.0);
@@ -86,6 +93,9 @@ pub struct Deps {
     pub open_settings: async_channel::Sender<()>,
     pub claude_answers: async_channel::Sender<claude::Reply>,
     pub todo_commands: async_channel::Sender<crate::todo::Command>,
+    pub shelf_commands: async_channel::Sender<crate::shelf::Command>,
+    pub controls_commands: async_channel::Sender<crate::services::controls::Command>,
+    pub clear_notifications: async_channel::Sender<()>,
     /// Ask the calendar service for a month (answered via `on_month`).
     pub calendar_months: async_channel::Sender<(i32, u32)>,
     pub features: Features,
@@ -120,6 +130,12 @@ pub struct Island {
     water: WaterCard,
     todo: Rc<TodoCard>,
     calendar: Rc<CalendarCard>,
+    shelf: Rc<ShelfCard>,
+    controls: Rc<ControlsCard>,
+    notifications: Rc<NotificationsCard>,
+    shelf_commands: async_channel::Sender<crate::shelf::Command>,
+    /// A file is being dragged over the notch or out of the shelf: stay open.
+    dragging: Cell<bool>,
     claude: Rc<ClaudeCard>,
     features: Features,
     /// Index into `pages()` of the expanded card being shown.
@@ -145,6 +161,8 @@ pub struct Island {
     pinned: Cell<bool>,
     hovered: Cell<bool>,
     fullscreen: Cell<bool>,
+    /// The card the current peek belongs to, opened if the peek is hovered.
+    peek_page: Cell<Option<&'static str>>,
     /// The user is typing in the notch: it holds keyboard focus (taken from
     /// this window) and stays open until typing ends.
     typing_from: Cell<Option<Option<u32>>>,
@@ -177,9 +195,30 @@ impl Island {
                     island.on_typing(t);
                 }
             };
-            Self::build(hit, deps, on_lyrics, on_pin, on_typing)
+            let w = weak.clone();
+            let on_drag = move |active| {
+                if let Some(island) = w.upgrade() {
+                    island.set_dragging(active);
+                }
+            };
+            let w = weak.clone();
+            let on_controls_typing = move |t| {
+                if let Some(island) = w.upgrade() {
+                    island.on_typing(t);
+                }
+            };
+            Self::build(
+                hit,
+                deps,
+                on_lyrics,
+                on_pin,
+                on_typing,
+                on_drag,
+                on_controls_typing,
+            )
         });
         island.connect_pager();
+        island.accept_drops(shelf_commands_for_drop(&island));
         // Next question in a multi-question prompt: refit the notch.
         let weak = Rc::downgrade(&island);
         island.claude.set_on_layout(move || {
@@ -198,6 +237,8 @@ impl Island {
         on_lyrics: impl Fn() + 'static,
         on_pin: impl Fn() + 'static,
         on_typing: impl Fn(Typing) + 'static,
+        on_drag: impl Fn(bool) + 'static,
+        on_controls_typing: impl Fn(Typing) + 'static,
     ) -> Self {
         let Deps {
             commands,
@@ -207,6 +248,9 @@ impl Island {
             claude_answers,
             todo_commands,
             calendar_months,
+            shelf_commands,
+            controls_commands,
+            clear_notifications,
             features,
         } = deps;
         let size = Rc::new(Cell::new(COLLAPSED));
@@ -240,6 +284,14 @@ impl Island {
         stack.add_named(&water.root, Some("water"));
         stack.add_named(&claude.root, Some("claude"));
         stack.add_named(&todo.root, Some("todo"));
+        let shelf = ShelfCard::new(shelf_commands.clone(), on_drag);
+        stack.add_named(&shelf.root, Some("shelf"));
+        let controls = ControlsCard::new(controls_commands, on_controls_typing);
+        stack.add_named(&controls.root, Some("controls"));
+        let notifications = NotificationsCard::new(move || {
+            let _ = clear_notifications.try_send(());
+        });
+        stack.add_named(&notifications.root, Some("notifications"));
         let calendar = CalendarCard::new(move |y, m| {
             let _ = calendar_months.try_send((y, m));
         });
@@ -292,6 +344,11 @@ impl Island {
             water,
             todo,
             calendar,
+            shelf,
+            controls,
+            notifications,
+            shelf_commands,
+            dragging: Cell::new(false),
             claude,
             features,
             page: Cell::new(0),
@@ -314,6 +371,7 @@ impl Island {
             pinned: Cell::new(false),
             hovered: Cell::new(false),
             fullscreen: Cell::new(false),
+            peek_page: Cell::new(None),
             typing_from: Cell::new(None),
             lyrics_key: RefCell::new(None),
             lyrics_loaded: RefCell::new(None),
@@ -337,6 +395,13 @@ impl Island {
             "todo-add" | "todo-edit" => {
                 self.todo.show_form_for_debugging(page == "todo-edit");
                 "todo"
+            }
+            "controls-wifi" => {
+                let c = self.controls.clone();
+                glib::timeout_add_local_once(Duration::from_millis(400), move || {
+                    c.show_menu_for_debugging();
+                });
+                "controls"
             }
             other => other,
         };
@@ -373,19 +438,22 @@ impl Island {
         }
     }
 
-    /// Handles clicks GTK may not have received: only the gear lives in the
-    /// bar area. On monitors without a bar GTK sees the click as well, and
-    /// opening settings twice just raises the window.
+    /// Clicks over the GNOME bar (sent only for the primary monitor's
+    /// island) never reach GTK: find the button under the pointer and click
+    /// it ourselves. Below the bar GTK handles clicks normally.
     fn on_click(&self, x: i32, y: f64) {
-        if self.state.get() != State::Expanded || !self.gear.is_visible() {
+        if y >= f64::from(BAR_H) || self.state.get() != State::Expanded {
             return;
         }
-        let Some(b) = self.gear.compute_bounds(&self.root) else {
-            return;
-        };
-        let x = f64::from(x) as f32;
-        if b.contains_point(&gtk::graphene::Point::new(x, y as f32)) {
-            self.gear.emit_clicked();
+        let mut widget = self.root.pick(f64::from(x), y, gtk::PickFlags::DEFAULT);
+        while let Some(w) = widget {
+            if let Some(button) = w.downcast_ref::<gtk::Button>() {
+                if button.is_sensitive() {
+                    button.emit_clicked();
+                }
+                return;
+            }
+            widget = w.parent();
         }
     }
 
@@ -397,17 +465,28 @@ impl Island {
         if self.fullscreen.get() {
             return; // hidden: the pointer is just near the screen edge
         }
-        if !inside && self.typing_from.get().is_some() {
-            return; // mid-typing: stay open even if the pointer drifts off
+        if !inside && (self.typing_from.get().is_some() || self.dragging.get()) {
+            return; // mid-typing or mid-drag: stay open
         }
         if let Some(id) = self.collapse_timer.take() {
             id.remove();
         }
         if inside {
-            // Hovering a peek opens the full card, like hovering the notch.
+            // Hovering a peek opens the card it belongs to (a notification
+            // opens the notifications, a meeting the calendar...), so it can
+            // be acted on right away; otherwise the first card.
             if self.state.get() != State::Expanded {
                 self.cancel_peek_timer();
-                self.expand();
+                let related = self
+                    .peek_page
+                    .take()
+                    .filter(|_| self.state.get() == State::Peek);
+                match related {
+                    Some(page) if self.pages().iter().any(|(p, _)| *p == page) => {
+                        self.show_named_page(page);
+                    }
+                    _ => self.expand(),
+                }
             }
             return;
         }
@@ -457,6 +536,77 @@ impl Island {
     /// Once a minute, to keep relative times ("in 5 min") fresh.
     pub fn tick_calendar(&self) {
         self.calendar.tick();
+    }
+
+    pub fn on_notifications(&self, items: &[crate::services::notifications::Notification]) {
+        self.notifications.update(items);
+    }
+
+    pub fn on_controls(&self, state: &crate::services::controls::State) {
+        self.controls.update(state);
+    }
+
+    pub fn on_shelf(&self, items: &[std::path::PathBuf]) {
+        self.shelf.update(items);
+    }
+
+    fn set_dragging(self: &Rc<Self>, active: bool) {
+        self.dragging.set(active);
+        if !active && !self.hovered.get() {
+            self.on_hover(false); // close as usual now
+        }
+    }
+
+    /// The whole notch accepts dropped files: dragging one over it opens the
+    /// shelf (even from collapsed), dropping adds it there.
+    fn accept_drops(self: &Rc<Self>, commands: async_channel::Sender<crate::shelf::Command>) {
+        if !self.features.shelf {
+            return;
+        }
+        let target = gtk::DropTarget::new(gdk::FileList::static_type(), gdk::DragAction::COPY);
+        let weak = Rc::downgrade(self);
+        target.connect_enter(move |_, _, _| {
+            if let Some(i) = weak.upgrade() {
+                i.dragging.set(true);
+                i.show_named_page("shelf");
+            }
+            gdk::DragAction::COPY
+        });
+        let weak = Rc::downgrade(self);
+        target.connect_leave(move |_| {
+            if let Some(i) = weak.upgrade() {
+                i.set_dragging(false);
+            }
+        });
+        let weak = Rc::downgrade(self);
+        target.connect_drop(move |_, value, _, _| {
+            let Ok(list) = value.get::<gdk::FileList>() else {
+                return false;
+            };
+            let paths: Vec<_> = list.files().iter().filter_map(|f| f.path()).collect();
+            if paths.is_empty() {
+                return false; // e.g. remote URIs with no local path
+            }
+            let _ = commands.try_send(crate::shelf::Command::Add(paths));
+            if let Some(i) = weak.upgrade() {
+                i.set_dragging(false);
+            }
+            true
+        });
+        self.root.add_controller(target);
+    }
+
+    /// Opens (or switches to) the expanded card named `page`.
+    fn show_named_page(self: &Rc<Self>, page: &str) {
+        let Some(i) = self.pages().iter().position(|(name, _)| *name == page) else {
+            return;
+        };
+        if self.state.get() == State::Expanded && self.page.get() == i {
+            return;
+        }
+        self.cancel_peek_timer();
+        self.page.set(i);
+        self.expand();
     }
 
     pub fn on_todo(&self, view: &crate::todo::View) {
@@ -566,23 +716,30 @@ impl Island {
 
     /// Expanded cards in order: music (or the clock card when nothing
     /// plays), then water.
+    /// Expanded cards in the user's order (Settings → Card order). The
+    /// "music" slot is the clock card when nothing plays.
     fn pages(&self) -> Vec<(&'static str, (f64, f64))> {
+        let f = &self.features;
         let mut pages = Vec::new();
-        if self.has_music.get() && self.lyrics_mode.get() {
-            pages.push(("music", EXPANDED_LYRICS));
-        } else if self.has_music.get() {
-            pages.push(("music", EXPANDED_MUSIC));
-        } else {
-            pages.push(("idle", EXPANDED_IDLE));
+        for name in &f.order {
+            let page = match name.as_str() {
+                "music" if self.has_music.get() && self.lyrics_mode.get() => {
+                    ("music", EXPANDED_LYRICS)
+                }
+                "music" if self.has_music.get() => ("music", EXPANDED_MUSIC),
+                "music" => ("idle", EXPANDED_IDLE),
+                "controls" if f.controls => ("controls", EXPANDED_CONTROLS),
+                "notifications" if f.notifications => ("notifications", EXPANDED_NOTIFICATIONS),
+                "calendar" if f.calendar => ("calendar", EXPANDED_CALENDAR),
+                "water" if f.water => ("water", EXPANDED_WATER),
+                "todo" if f.todo => ("todo", EXPANDED_TODO),
+                "shelf" if f.shelf => ("shelf", EXPANDED_SHELF),
+                _ => continue,
+            };
+            pages.push(page);
         }
-        if self.features.calendar {
-            pages.push(("calendar", EXPANDED_CALENDAR));
-        }
-        if self.features.water {
-            pages.push(("water", EXPANDED_WATER));
-        }
-        if self.features.todo {
-            pages.push(("todo", EXPANDED_TODO));
+        if pages.is_empty() {
+            pages.push(("idle", EXPANDED_IDLE)); // never leave the notch empty
         }
         pages
     }
@@ -740,6 +897,14 @@ impl Island {
         if self.fullscreen.get() {
             return; // don't pop over videos or slides
         }
+        self.peek_page.set(match &peek.kind {
+            Kind::Notification { .. } => Some("notifications"),
+            Kind::Meeting => Some("calendar"),
+            Kind::Todo => Some("todo"),
+            Kind::Water => Some("water"),
+            Kind::Bluetooth { .. } | Kind::Charging | Kind::Unplugged => Some("controls"),
+            _ => None,
+        });
         if matches!(self.state.get(), State::Expanded | State::Claude) {
             self.queued_peek
                 .replace(Some((peek, std::time::Instant::now())));
@@ -919,4 +1084,9 @@ fn draw(cr: &cairo::Context, win_w: f64, (body_w, h): (f64, f64)) {
     if let Err(e) = cr.fill() {
         tracing::warn!("notch fill failed: {e}");
     }
+}
+
+/// The shelf's command channel, reused by the island-wide drop target.
+fn shelf_commands_for_drop(island: &Island) -> async_channel::Sender<crate::shelf::Command> {
+    island.shelf_commands.clone()
 }

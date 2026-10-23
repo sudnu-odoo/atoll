@@ -30,3 +30,14 @@ https://github.com/google/material-design-icons
 - atoll-event-symbolic.svg: `event (filled)`
 - atoll-videocam-symbolic.svg: `videocam (filled)`
 - atoll-clock-symbolic.svg: `schedule`
+- atoll-tray-symbolic.svg: `move_to_inbox`
+- atoll-wifi-symbolic.svg: `wifi`
+- atoll-wifi-off-symbolic.svg: `wifi_off`
+- atoll-bluetooth-off-symbolic.svg: `bluetooth_disabled`
+- atoll-airplane-symbolic.svg: `airplanemode_active (filled)`
+- atoll-speed-symbolic.svg: `speed`
+- atoll-lock-symbolic.svg: `lock (filled)`
+- atoll-volume-symbolic.svg: `volume_up (filled)`
+- atoll-volume-off-symbolic.svg: `volume_off (filled)`
+- atoll-brightness-symbolic.svg: `light_mode (filled)`
+- atoll-controls-symbolic.svg: `tune`

@@ -12,16 +12,24 @@ use crate::palette::{self, Rgb};
 
 const GAUGE: i32 = 36;
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub enum Kind {
-    Bluetooth { audio: bool },
+    Bluetooth {
+        audio: bool,
+    },
     Charging,
     Unplugged,
     Water,
     Claude,
-    Command { ok: bool },
+    Command {
+        ok: bool,
+    },
     Meeting,
     Todo,
+    /// With the sending app's (or sender's) picture, if known.
+    Notification {
+        icon: Option<gtk::gio::Icon>,
+    },
 }
 
 #[derive(Clone)]
@@ -42,6 +50,9 @@ pub struct PeekCard {
     subtitle: Label,
     percent: Label,
     badge: gtk::Image,
+    /// Ring + symbol, or a notification's own picture.
+    lead: gtk::Stack,
+    picture: gtk::Image,
 }
 
 impl PeekCard {
@@ -63,6 +74,16 @@ impl PeekCard {
             .valign(Align::Center)
             .build();
         ring.add_overlay(&icon);
+        let picture = gtk::Image::builder().pixel_size(GAUGE).build();
+        let frame = gtk::Box::builder()
+            .css_classes(["notif-icon"])
+            .overflow(gtk::Overflow::Hidden)
+            .valign(Align::Center)
+            .build();
+        frame.append(&picture);
+        let lead = gtk::Stack::builder().valign(Align::Center).build();
+        lead.add_named(&ring, Some("ring"));
+        lead.add_named(&frame, Some("picture"));
 
         // Capped widths: an ellipsizing label still *asks* for its full
         // text width, which would stretch the card past the notch outline.
@@ -104,7 +125,7 @@ impl PeekCard {
             .height_request(crate::island::PEEK.1 as i32)
             .valign(Align::Start)
             .build();
-        root.append(&ring);
+        root.append(&lead);
         root.append(&text);
         root.append(&percent);
         root.append(&badge);
@@ -118,6 +139,8 @@ impl PeekCard {
             subtitle,
             percent,
             badge,
+            lead,
+            picture,
         }
     }
 
@@ -133,8 +156,17 @@ impl PeekCard {
             Kind::Command { ok: false } => ("atoll-close-symbolic", palette::pink()),
             Kind::Meeting => ("atoll-event-symbolic", palette::pink()),
             Kind::Todo => ("atoll-check-symbolic", palette::pink()),
+            Kind::Notification { .. } => ("atoll-bell-symbolic", palette::lavender()),
         };
         self.icon.set_icon_name(Some(icon));
+        // A notification with a known picture shows it instead of the ring.
+        match &peek.kind {
+            Kind::Notification { icon: Some(gicon) } => {
+                self.picture.set_from_gicon(gicon);
+                self.lead.set_visible_child_name("picture");
+            }
+            _ => self.lead.set_visible_child_name("ring"),
+        }
         // No level (e.g. Claude): a full ring, so it reads as a badge
         // rather than an empty gauge.
         let fraction = peek.percent.map_or(1.0, |p| (p / 100.0).clamp(0.0, 1.0));

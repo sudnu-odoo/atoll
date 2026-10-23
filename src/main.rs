@@ -1,4 +1,5 @@
 mod app;
+mod banners;
 mod cards;
 mod config;
 mod hook;
@@ -6,6 +7,7 @@ mod island;
 mod palette;
 mod services;
 mod settings;
+mod shelf;
 mod shell;
 mod store;
 mod theme;
@@ -73,7 +75,14 @@ fn main() -> glib::ExitCode {
         glib::ExitCode::SUCCESS
     });
     watch_signals();
-    app.run()
+    let code = app.run();
+    // Clean exit (incl. SIGINT/SIGTERM, which quit through GTK): give GNOME
+    // its banners back if Atoll had hidden them. Not from a second launch
+    // (`atoll --settings`), which only forwarded to the running instance.
+    if !app.is_remote() {
+        banners::restore();
+    }
+    code
 }
 
 /// Quits through GTK on SIGINT/SIGTERM so the window is unmapped cleanly.
@@ -87,12 +96,23 @@ fn watch_signals() {
         }
     };
     std::thread::spawn(move || {
-        if let Some(sig) = signals.forever().next() {
+        // Keep listening: a handled-but-unread signal would otherwise be
+        // swallowed and Atoll would ignore every later SIGTERM.
+        for (count, sig) in signals.forever().enumerate() {
+            if count > 0 {
+                // The graceful quit didn't happen: leave anyway, but never
+                // with GNOME's banners still hidden.
+                tracing::warn!("signal {sig} again, exiting now");
+                banners::restore();
+                std::process::exit(0);
+            }
             tracing::info!("signal {sig} received, quitting");
             // GTK objects live on the main thread; hop back there to quit.
-            glib::MainContext::default().invoke(|| {
-                if let Some(app) = gio::Application::default() {
-                    app.quit();
+            glib::MainContext::default().invoke(|| match gio::Application::default() {
+                Some(app) => app.quit(),
+                None => {
+                    banners::restore();
+                    std::process::exit(0);
                 }
             });
         }

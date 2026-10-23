@@ -6,7 +6,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use gtk::prelude::*;
-use gtk::{gdk, Align, Application, Label, Orientation};
+use gtk::{gdk, glib, Align, Application, Label, Orientation};
 
 use crate::config::{self, Config};
 
@@ -19,6 +19,8 @@ const PRESETS: &[(&str, &str, &str)] = &[
 ];
 
 type OnChange = Rc<dyn Fn(Config)>;
+/// Rebuilds the card-order list; set once the list exists.
+type Refresh = Rc<RefCell<Option<Box<dyn Fn()>>>>;
 
 /// Builds and shows the window. `config` is the current state.
 pub fn open(
@@ -27,7 +29,20 @@ pub fn open(
     on_change: impl Fn(Config) + 'static,
 ) -> gtk::Window {
     let state = Rc::new(RefCell::new(config));
-    let on_change: OnChange = Rc::new(on_change);
+    // The order list shows only switched-on cards, so it is rebuilt after
+    // every change (set once the list exists, below).
+    let refresh_order: Refresh = Rc::default();
+    let hook = refresh_order.clone();
+    let on_change: OnChange = Rc::new(move |c| {
+        on_change(c);
+        let hook = hook.clone();
+        // From idle: the change may come from inside the list itself.
+        glib::idle_add_local_once(move || {
+            if let Some(f) = hook.borrow().as_ref() {
+                f();
+            }
+        });
+    });
 
     let content = gtk::Box::builder()
         .orientation(Orientation::Vertical)
@@ -35,6 +50,7 @@ pub fn open(
         .spacing(22)
         .build();
     content.append(&features_section(&state, &on_change));
+    content.append(&order_section(&state, &on_change, &refresh_order));
     content.append(&theme_section(&state, &on_change));
     content.append(
         &Label::builder()
@@ -226,26 +242,34 @@ fn features_section(state: &Rc<RefCell<Config>>, on_change: &OnChange) -> gtk::B
         switch(
             state,
             on_change,
-            "Bluetooth peek",
-            "When a device connects",
-            |c| c.features.bluetooth_peek,
-            |c, v| c.features.bluetooth_peek = v,
-        ),
-        switch(
-            state,
-            on_change,
-            "Charging peek",
-            "When the charger is plugged or unplugged",
-            |c| c.features.charging_peek,
-            |c, v| c.features.charging_peek = v,
-        ),
-        switch(
-            state,
-            on_change,
             "To-do",
             "Today's tasks; tick them off from the notch",
             |c| c.features.todo,
             |c, v| c.features.todo = v,
+        ),
+        switch(
+            state,
+            on_change,
+            "Shelf",
+            "Drop files on the notch, drag them out where you need them",
+            |c| c.features.shelf,
+            |c, v| c.features.shelf = v,
+        ),
+        switch(
+            state,
+            on_change,
+            "Controls",
+            "Wi-Fi, Bluetooth, volume, brightness, power mode, lock",
+            |c| c.features.controls,
+            |c, v| c.features.controls = v,
+        ),
+        switch(
+            state,
+            on_change,
+            "Notifications",
+            "Show notifications in Atoll and hide GNOME's own banners (given back when off)",
+            |c| c.features.notifications,
+            |c, v| c.features.notifications = v,
         ),
         feature(
             switch_with(
@@ -342,6 +366,133 @@ fn color_button(
         changer(&state, &on_change, move |c| set(c, hex.clone()))();
     });
     button
+}
+
+fn card_label(name: &str) -> &'static str {
+    match name {
+        "music" => "Music / Clock",
+        "controls" => "Controls",
+        "notifications" => "Notifications",
+        "calendar" => "Calendar",
+        "water" => "Water",
+        "todo" => "To-do",
+        "shelf" => "Shelf",
+        _ => "Card",
+    }
+}
+
+fn card_enabled(f: &crate::config::Features, name: &str) -> bool {
+    match name {
+        "music" => true, // the clock card when music is off or idle
+        "controls" => f.controls,
+        "notifications" => f.notifications,
+        "calendar" => f.calendar,
+        "water" => f.water,
+        "todo" => f.todo,
+        "shelf" => f.shelf,
+        _ => false,
+    }
+}
+
+/// Which card comes first when the notch opens, and the order after it.
+fn order_section(state: &Rc<RefCell<Config>>, on_change: &OnChange, refresh: &Refresh) -> gtk::Box {
+    let list = gtk::Box::builder()
+        .orientation(Orientation::Vertical)
+        .build();
+    fill_order(&list, state, on_change);
+    let (l, s, c) = (list.clone(), state.clone(), on_change.clone());
+    refresh.replace(Some(Box::new(move || fill_order(&l, &s, &c))));
+    let wrapper = gtk::Box::builder()
+        .orientation(Orientation::Vertical)
+        .spacing(6)
+        .build();
+    wrapper.append(
+        &Label::builder()
+            .label("CARD ORDER")
+            .css_classes(["settings-section"])
+            .xalign(0.0)
+            .build(),
+    );
+    let card = gtk::Box::builder()
+        .orientation(Orientation::Vertical)
+        .css_classes(["settings-card"])
+        .build();
+    card.append(&list);
+    wrapper.append(&card);
+    wrapper.append(
+        &Label::builder()
+            .label("The first card opens when you hover the island")
+            .css_classes(["settings-hint"])
+            .xalign(0.0)
+            .build(),
+    );
+    wrapper
+}
+
+/// (Re)builds the order rows; moving one rebuilds the list.
+fn fill_order(list: &gtk::Box, state: &Rc<RefCell<Config>>, on_change: &OnChange) {
+    while let Some(child) = list.first_child() {
+        list.remove(&child);
+    }
+    // Only cards that are switched on; `at[i]` is where shown row i sits in
+    // the full order, so moving rows keeps hidden cards' places.
+    let (order, at): (Vec<String>, Vec<usize>) = {
+        let c = state.borrow();
+        let f = &c.features;
+        f.order
+            .iter()
+            .enumerate()
+            .filter(|(_, name)| card_enabled(f, name))
+            .map(|(i, name)| (name.clone(), i))
+            .unzip()
+    };
+    let last = order.len().saturating_sub(1);
+    for (i, name) in order.iter().enumerate() {
+        let arrow = |icon: &str, tip: &str, enabled: bool, to: usize| {
+            let b = gtk::Button::builder()
+                .icon_name(icon)
+                .tooltip_text(tip)
+                .css_classes(["flat", "order-arrow"])
+                .sensitive(enabled)
+                .build();
+            b.set_cursor_from_name(Some("pointer"));
+            let (list, state, on_change) = (list.clone(), state.clone(), on_change.clone());
+            let (from, to) = (at[i], at[to]);
+            b.connect_clicked(move |_| {
+                state.borrow_mut().features.order.swap(from, to);
+                let snapshot = state.borrow().clone();
+                on_change(snapshot);
+                fill_order(&list, &state, &on_change);
+            });
+            b
+        };
+        let up = arrow("go-up-symbolic", "Move up", i > 0, i.saturating_sub(1));
+        let down = arrow("go-down-symbolic", "Move down", i < last, (i + 1).min(last));
+        let buttons = gtk::Box::builder().spacing(4).build();
+        buttons.append(&up);
+        buttons.append(&down);
+        let position = format!("{}", i + 1);
+        let r = gtk::Box::builder()
+            .css_classes(["settings-row"])
+            .spacing(14)
+            .build();
+        r.append(
+            &Label::builder()
+                .label(position)
+                .css_classes(["order-number"])
+                .build(),
+        );
+        r.append(
+            &Label::builder()
+                .label(card_label(name))
+                .css_classes(["settings-title"])
+                .xalign(0.0)
+                .hexpand(true)
+                .build(),
+        );
+        r.append(&buttons);
+        list.append(&r);
+    }
 }
 
 fn theme_section(state: &Rc<RefCell<Config>>, on_change: &OnChange) -> gtk::Box {

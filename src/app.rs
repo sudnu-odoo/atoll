@@ -13,8 +13,11 @@ use gtk::{gdk, gio, glib, Application, ApplicationWindow};
 use crate::cards::peek::{Kind, Peek};
 use crate::config::Config;
 use crate::island::{self, Island};
-use crate::services::{bluez, calendar, claude, lyrics, mpris, upower};
-use crate::{settings, theme, todo, water, window};
+use crate::services::{bluez, calendar, claude, controls, lyrics, mpris, notifications, upower};
+use crate::{banners, settings, shelf, theme, todo, water, window};
+
+/// Notifications kept for the card.
+const RECENT_NOTIFICATIONS: usize = 30;
 
 /// A dock connect fires several monitor changes in a row; act once it settles.
 const MONITORS_SETTLE: Duration = Duration::from_millis(400);
@@ -26,6 +29,9 @@ struct Hub {
     config: RefCell<Config>,
     water: RefCell<Option<Rc<water::Water>>>,
     todo: RefCell<Option<Rc<todo::Todo>>>,
+    shelf: RefCell<Option<Rc<shelf::Shelf>>>,
+    /// Newest first.
+    notifications: RefCell<Vec<notifications::Notification>>,
     /// Upcoming meetings (sorted), and which ones were already announced.
     meetings: RefCell<Vec<calendar::Meeting>>,
     reminded: RefCell<std::collections::HashSet<String>>,
@@ -74,6 +80,19 @@ pub fn build(app: &Application) {
     let (cal_tx, cal_rx) = async_channel::unbounded();
     let calendar_months = calendar::spawn(cal_tx);
     let (todo_tx, todo_rx) = async_channel::unbounded();
+    let (shelf_tx, shelf_rx) = async_channel::unbounded();
+    let (controls_tx, controls_rx) = async_channel::unbounded();
+    let controls_commands = controls::spawn(controls_tx);
+    let (notif_tx, notif_rx) = async_channel::unbounded();
+    let (clear_tx, clear_rx) = async_channel::unbounded::<()>();
+    notifications::spawn(notif_tx);
+    // GNOME's banners follow the setting; this also repairs them after a
+    // crash, when the setting is now off but Atoll had hidden them.
+    if config.features.notifications {
+        banners::hide();
+    } else {
+        banners::restore();
+    }
     claude::spawn(claude_tx);
     // Services always run (they idle on D-Bus signals at no cost); whether
     // their output is shown is decided per event, so toggling a feature in
@@ -92,10 +111,15 @@ pub fn build(app: &Application) {
             claude_answers: answer_tx,
             todo_commands: todo_tx,
             calendar_months,
+            shelf_commands: shelf_tx,
+            controls_commands,
+            clear_notifications: clear_tx,
             features: config.features.clone(),
         }),
         water: RefCell::default(),
         todo: RefCell::default(),
+        shelf: RefCell::default(),
+        notifications: RefCell::default(),
         meetings: RefCell::default(),
         reminded: RefCell::default(),
         reminder: RefCell::default(),
@@ -172,6 +196,61 @@ pub fn build(app: &Application) {
         }
     });
 
+    let h = Rc::downgrade(&hub);
+    let sh = Rc::new(shelf::Shelf::new(move |items| {
+        if let Some(hub) = h.upgrade() {
+            hub.each(|i| i.on_shelf(&items));
+        }
+    }));
+    hub.shelf.replace(Some(sh.clone()));
+    let h = Rc::downgrade(&hub);
+    forward(notif_rx, move |n: notifications::Notification| {
+        let Some(hub) = h.upgrade() else { return };
+        if !hub.config.borrow().features.notifications {
+            return;
+        }
+        let peek = Peek {
+            kind: Kind::Notification {
+                icon: crate::cards::notifications::icon_for(&n),
+            },
+            title: if n.title.is_empty() {
+                n.app.clone()
+            } else {
+                n.title.clone()
+            },
+            subtitle: [n.app.as_str(), n.body.as_str()]
+                .into_iter()
+                .filter(|s| !s.is_empty())
+                .collect::<Vec<_>>()
+                .join(" · "),
+            percent: None,
+        };
+        {
+            let mut list = hub.notifications.borrow_mut();
+            list.insert(0, n);
+            list.truncate(RECENT_NOTIFICATIONS);
+        }
+        let items = hub.notifications.borrow().clone();
+        hub.each(|i| {
+            i.on_notifications(&items);
+            i.on_peek(peek.clone());
+        });
+    });
+    let h = Rc::downgrade(&hub);
+    forward(clear_rx, move |()| {
+        if let Some(hub) = h.upgrade() {
+            hub.notifications.borrow_mut().clear();
+            hub.each(|i| i.on_notifications(&[]));
+        }
+    });
+    let h = Rc::downgrade(&hub);
+    forward(controls_rx, move |state| {
+        if let Some(hub) = h.upgrade() {
+            hub.each(|i| i.on_controls(&state));
+        }
+    });
+    forward(shelf_rx, move |cmd| sh.handle(cmd));
+
     // Once a minute keeps "next in N min" current and rolls the day over
     // (water log, and yesterday's done tasks leaving the list).
     let h = Rc::downgrade(&hub);
@@ -213,18 +292,15 @@ pub fn build(app: &Application) {
         h.each(|i| i.on_lyrics(update.clone()));
     });
     let h = hub.clone();
+    // Charging and Bluetooth peeks are always on.
     forward(power_rx, move |update| {
-        if h.config.borrow().features.charging_peek {
-            let peek = power_peek(update);
-            h.each(|i| i.on_peek(peek.clone()));
-        }
+        let peek = power_peek(update);
+        h.each(|i| i.on_peek(peek.clone()));
     });
     let h = hub.clone();
     forward(bt_rx, move |device| {
-        if h.config.borrow().features.bluetooth_peek {
-            let peek = bluetooth_peek(device);
-            h.each(|i| i.on_peek(peek.clone()));
-        }
+        let peek = bluetooth_peek(device);
+        h.each(|i| i.on_peek(peek.clone()));
     });
     let h = hub.clone();
     forward(claude_rx, move |incoming| h.on_claude(incoming));
@@ -434,6 +510,13 @@ impl Hub {
                 w.set_config(new.water.clone());
             }
         }
+        if old.features.notifications != new.features.notifications {
+            if new.features.notifications {
+                banners::hide();
+            } else {
+                banners::restore();
+            }
+        }
         if format!("{:?}", old.features) != format!("{:?}", new.features) {
             self.deps.borrow_mut().features = new.features.clone();
             self.rebuild_islands();
@@ -528,6 +611,10 @@ impl Hub {
         if let Some(t) = self.todo.borrow().as_ref() {
             island.on_todo(&t.view());
         }
+        if let Some(s) = self.shelf.borrow().as_ref() {
+            island.on_shelf(&s.items());
+        }
+        island.on_notifications(&self.notifications.borrow());
 
         // Catch up on what's already playing.
         for update in [&self.last_track, &self.last_art] {

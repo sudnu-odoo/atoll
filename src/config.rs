@@ -54,8 +54,6 @@ pub struct Features {
     pub lyrics: bool,
     pub eyes: bool,
     pub water: bool,
-    pub bluetooth_peek: bool,
-    pub charging_peek: bool,
     /// Claude Code prompts and peeks (needs the hooks installed).
     pub claude: bool,
     pub todo: bool,
@@ -63,7 +61,27 @@ pub struct Features {
     pub command_peek: bool,
     /// Next meetings from GNOME Online Accounts (Google Calendar).
     pub calendar: bool,
+    /// File shelf: drop files on the notch, drag them out later.
+    pub shelf: bool,
+    /// Quick settings: Wi-Fi, Bluetooth, volume, brightness...
+    pub controls: bool,
+    /// Show notifications in the notch, and hide GNOME's own banners.
+    pub notifications: bool,
+    /// Order of the expanded cards. "music" is the clock card when nothing
+    /// plays. Unknown names are dropped and missing ones appended.
+    pub order: Vec<String>,
 }
+
+/// Every card that can appear in `order`, in the default order.
+pub const CARDS: &[&str] = &[
+    "music",
+    "controls",
+    "notifications",
+    "calendar",
+    "water",
+    "todo",
+    "shelf",
+];
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default)]
@@ -95,12 +113,14 @@ impl Default for Features {
             lyrics: true,
             eyes: true,
             water: true,
-            bluetooth_peek: true,
-            charging_peek: true,
             claude: true,
             todo: true,
             command_peek: true,
             calendar: true,
+            shelf: true,
+            controls: true,
+            notifications: true,
+            order: CARDS.iter().map(|c| (*c).to_owned()).collect(),
         }
     }
 }
@@ -173,6 +193,18 @@ impl Config {
     /// Clamps values that would break the UI (zero goal, bad colors).
     pub fn sanitized(mut self) -> Self {
         let defaults = Self::default();
+        let mut order: Vec<String> = Vec::new();
+        for name in &self.features.order {
+            if CARDS.contains(&name.as_str()) && !order.contains(name) {
+                order.push(name.clone());
+            }
+        }
+        for name in CARDS {
+            if !order.iter().any(|o| o == name) {
+                order.push((*name).to_owned());
+            }
+        }
+        self.features.order = order;
         if parse_hex(&self.theme.accent).is_none() {
             self.theme.accent = defaults.theme.accent;
         }

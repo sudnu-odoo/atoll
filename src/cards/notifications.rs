@@ -1,0 +1,308 @@
+//! Notifications card: recent notifications, newest first. Clicking one
+//! brings its app forward (GNOME Shell alone can run a notification's own
+//! actions). Clear empties the list.
+
+use std::rc::Rc;
+
+use gtk::prelude::*;
+use gtk::{gio, glib, Align, Label, Orientation};
+
+use super::{control_button, live_clock};
+use crate::services::notifications::Notification;
+
+pub struct NotificationsCard {
+    pub root: gtk::Box,
+    list: gtk::Box,
+    empty: Label,
+    clear: gtk::Button,
+}
+
+impl NotificationsCard {
+    pub fn new(on_clear: impl Fn() + 'static) -> Rc<Self> {
+        // Top row (over the GNOME bar; Clear is clicked through the island's
+        // bar-click handling).
+        let title = gtk::Box::builder().spacing(6).build();
+        title.append(
+            &gtk::Image::builder()
+                .icon_name("atoll-bell-symbolic")
+                .css_classes(["todo-icon"])
+                .build(),
+        );
+        title.append(
+            &Label::builder()
+                .label("NOTIFICATIONS")
+                .css_classes(["caps", "lavender"])
+                .build(),
+        );
+        let clear = control_button(&["shelf-clear"], None);
+        clear.set_label("Clear");
+        clear.connect_clicked(move |_| on_clear());
+        title.append(&clear);
+        let time = Label::builder().css_classes(["clock"]).build();
+        live_clock(&time, "%H:%M:%S");
+        let top = gtk::CenterBox::builder()
+            .css_classes(["card-top"])
+            .start_widget(&title)
+            .center_widget(&time)
+            .build();
+
+        let list = gtk::Box::builder()
+            .orientation(Orientation::Vertical)
+            .spacing(6)
+            .build();
+        let empty = Label::builder()
+            .label("No notifications")
+            .css_classes(["subtitle"])
+            .valign(Align::Center)
+            .vexpand(true)
+            .build();
+        // Long lists scroll; scrolling here doesn't flip cards.
+        let scroller = gtk::ScrolledWindow::builder()
+            .hscrollbar_policy(gtk::PolicyType::Never)
+            .min_content_height(132)
+            .max_content_height(132)
+            .child(&list)
+            .build();
+
+        let root = gtk::Box::builder()
+            .orientation(Orientation::Vertical)
+            .css_classes(["water-card"])
+            .width_request(crate::island::EXPANDED_NOTIFICATIONS.0 as i32)
+            .height_request(crate::island::EXPANDED_NOTIFICATIONS.1 as i32)
+            .valign(Align::Start)
+            .build();
+        root.append(&top);
+        let body = gtk::Box::builder()
+            .orientation(Orientation::Vertical)
+            .css_classes(["todo-body"])
+            .build();
+        body.append(&scroller);
+        root.append(&body);
+
+        let card = Rc::new(Self {
+            root,
+            list,
+            empty,
+            clear,
+        });
+        card.update(&[]);
+        card
+    }
+
+    /// `items` newest first.
+    pub fn update(&self, items: &[Notification]) {
+        while let Some(child) = self.list.first_child() {
+            self.list.remove(&child);
+        }
+        self.clear.set_visible(!items.is_empty());
+        if items.is_empty() {
+            self.list.append(&self.empty);
+            return;
+        }
+        let now = glib::DateTime::now_local().map_or(0, |t| t.to_unix());
+        for n in items {
+            self.list.append(&row(n, now));
+        }
+    }
+}
+
+fn row(n: &Notification, now: i64) -> gtk::Button {
+    let time = Label::builder()
+        .label(ago(now - n.at))
+        .css_classes(["qs-subtitle"])
+        .valign(Align::Center)
+        .build();
+    let title = Label::builder()
+        .label(&n.title)
+        .xalign(0.0)
+        .hexpand(true)
+        .ellipsize(gtk::pango::EllipsizeMode::End)
+        .css_classes(["cal-event-title"])
+        .build();
+    let text = gtk::Box::builder()
+        .orientation(Orientation::Vertical)
+        .spacing(2)
+        .valign(Align::Center)
+        .build();
+    if n.app.is_empty() {
+        // No app name (common for web apps, Discord): the time joins the
+        // title line instead of holding up an empty line above it.
+        let line = gtk::Box::builder().spacing(8).build();
+        line.append(&title);
+        line.append(&time);
+        text.append(&line);
+    } else {
+        let head = gtk::Box::builder().spacing(8).build();
+        head.append(
+            &Label::builder()
+                .label(n.app.to_uppercase())
+                .css_classes(["caps", "muted"])
+                .xalign(0.0)
+                .hexpand(true)
+                .ellipsize(gtk::pango::EllipsizeMode::End)
+                .build(),
+        );
+        head.append(&time);
+        text.append(&head);
+        if !n.title.is_empty() {
+            text.append(&title);
+        }
+    }
+    if !n.body.is_empty() {
+        text.append(
+            &Label::builder()
+                .label(n.body.replace('\n', " "))
+                .xalign(0.0)
+                .wrap(true)
+                .lines(2)
+                .ellipsize(gtk::pango::EllipsizeMode::End)
+                .max_width_chars(60)
+                .css_classes(["notif-body"])
+                .build(),
+        );
+    }
+    text.set_hexpand(true);
+    let content = gtk::Box::builder().spacing(12).build();
+    content.append(&picture(n, 36));
+    content.append(&text);
+    let button = gtk::Button::builder()
+        .child(&content)
+        .css_classes(["qs-item", "idle", "notif-row"])
+        .focus_on_click(false)
+        .can_focus(false)
+        .build();
+    button.set_cursor_from_name(Some("pointer"));
+    let (click, app) = (n.click.clone(), app_for(n));
+    button.connect_clicked(move |_| {
+        use crate::services::notifications::{activate_app_action, Click};
+        match &click {
+            Click::AppAction {
+                app_id,
+                action,
+                target,
+            } => activate_app_action(app_id.clone(), action.clone(), target.clone()),
+            Click::OpenApp => {
+                if let Some(app) = &app {
+                    if let Err(e) = app.launch(&[], None::<&gio::AppLaunchContext>) {
+                        tracing::warn!("cannot open app: {e}");
+                    }
+                }
+            }
+        }
+    });
+    button
+}
+
+fn ago(secs: i64) -> String {
+    match secs.max(0) {
+        s if s < 60 => "now".into(),
+        s if s < 3600 => format!("{} min", s / 60),
+        s if s < 86_400 => format!("{} h", s / 3600),
+        s => format!("{} d", s / 86_400),
+    }
+}
+
+/// The picture for a notification: the image it carried (avatar, cover),
+/// else its icon, else the sending app's own icon.
+pub fn icon_for(n: &Notification) -> Option<gio::Icon> {
+    use crate::services::notifications::Icon;
+    match &n.icon {
+        Some(Icon::Pixels {
+            width,
+            height,
+            stride,
+            alpha,
+            bytes,
+        }) => {
+            let format = if *alpha {
+                gtk::gdk::MemoryFormat::R8g8b8a8
+            } else {
+                gtk::gdk::MemoryFormat::R8g8b8
+            };
+            let texture = gtk::gdk::MemoryTexture::new(
+                *width,
+                *height,
+                format,
+                &glib::Bytes::from(bytes),
+                usize::try_from(*stride).ok()?,
+            );
+            Some(texture.upcast())
+        }
+        Some(Icon::File(path)) if path.exists() => {
+            Some(gio::FileIcon::new(&gio::File::for_path(path)).upcast())
+        }
+        Some(Icon::Named(name)) => Some(gio::ThemedIcon::new(name).upcast()),
+        _ => app_icon(n),
+    }
+}
+
+/// The sending app: by its desktop entry, else its name, else the app whose
+/// icon the notification named (Discord often gives only that). Launching it
+/// again brings its window forward.
+fn app_for(n: &Notification) -> Option<gio::AppInfo> {
+    use crate::services::notifications::Icon;
+    let apps = gio::AppInfo::all();
+    let lower = |s: &str| s.to_lowercase();
+    if let Some(id) = n.desktop_entry.as_deref() {
+        let id = if id.ends_with(".desktop") {
+            id.to_owned()
+        } else {
+            format!("{id}.desktop")
+        };
+        if let Some(a) = apps.iter().find(|a| a.id().as_deref() == Some(id.as_str())) {
+            return Some(a.clone());
+        }
+    }
+    let name = lower(&n.app);
+    if !name.is_empty() {
+        let hit = apps.iter().find(|a| {
+            lower(&a.display_name()).contains(&name)
+                || a.id().is_some_and(|id| lower(&id).contains(&name))
+        });
+        if let Some(a) = hit {
+            return Some(a.clone());
+        }
+    }
+    if let Some(Icon::Named(icon)) = &n.icon {
+        let icon = lower(icon);
+        return apps
+            .iter()
+            .find(|a| {
+                a.icon()
+                    .and_then(|i| i.to_string())
+                    .is_some_and(|s| lower(&s).contains(&icon))
+            })
+            .cloned();
+    }
+    None
+}
+
+/// The app's icon, for notifications that carry no picture of their own.
+fn app_icon(n: &Notification) -> Option<gio::Icon> {
+    app_for(n)?.icon()
+}
+
+/// The notification's picture, `size` px square: images (avatars, covers)
+/// are cropped to fill like the music cover; icons keep their shape. A bell
+/// when nothing is known.
+pub fn picture(n: &Notification, size: i32) -> gtk::Widget {
+    use crate::services::notifications::Icon;
+    let texture = match (&n.icon, icon_for(n)) {
+        (Some(Icon::Pixels { .. }), Some(icon)) => icon.downcast::<gtk::gdk::Texture>().ok(),
+        (Some(Icon::File(path)), _) => gtk::gdk::Texture::from_filename(path).ok(),
+        _ => None,
+    };
+    if let Some(texture) = texture {
+        let cover = super::widgets::Cover::new(size, 10.0);
+        cover.set(Some(&texture));
+        cover.area.set_valign(Align::Center);
+        return cover.area.upcast();
+    }
+    let image = match icon_for(n) {
+        Some(icon) => gtk::Image::from_gicon(&icon),
+        None => gtk::Image::from_icon_name("atoll-bell-symbolic"),
+    };
+    image.set_pixel_size(size);
+    image.set_valign(Align::Center);
+    image.upcast()
+}

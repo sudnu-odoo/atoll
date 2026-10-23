@@ -123,6 +123,8 @@ fn x_events(
     }
 
     let mut monitor = monitor_rect(conn, connector);
+    // Only the primary monitor has the GNOME bar that swallows clicks.
+    let mut has_bar = is_primary(conn, connector);
     let mut target = target_of(monitor, connector);
     move_to(conn, xid, target);
     let mut inside = false;
@@ -174,7 +176,8 @@ fn x_events(
             }
             // Clicks over the GNOME bar never reach GTK (the Shell takes
             // them), so report primary-button presses on the notch ourselves.
-            Ok(Event::XinputRawButtonPress(ev)) if ev.detail == 1 && inside => {
+            // Elsewhere GTK gets them anyway; reporting would double-click.
+            Ok(Event::XinputRawButtonPress(ev)) if ev.detail == 1 && inside && has_bar => {
                 let Some((x, y)) = pointer_at(conn, root, target) else {
                     continue;
                 };
@@ -186,6 +189,7 @@ fn x_events(
             // and only an actual change of position does anything.
             Ok(Event::RandrScreenChangeNotify(_) | Event::RandrNotify(_)) => {
                 monitor = monitor_rect(conn, connector);
+                has_bar = is_primary(conn, connector);
                 let now = target_of(monitor, connector);
                 if now != target {
                     target = now;
@@ -342,6 +346,24 @@ fn target_of((mx, my, mw, _): (i32, i32, i32, i32), connector: &str) -> (i32, i3
     let x = mx + (mw - island::WIN_W) / 2;
     tracing::info!("placing island for {connector} at {x},{my} (monitor width {mw})");
     (x, my)
+}
+
+/// Whether the monitor named `connector` is the primary one.
+fn is_primary(conn: &impl Connection, connector: &str) -> bool {
+    let root = conn.setup().roots[0].root;
+    conn.randr_get_monitors(root, true)
+        .ok()
+        .and_then(|c| c.reply().ok())
+        .is_some_and(|r| {
+            r.monitors.iter().any(|m| {
+                m.primary
+                    && conn
+                        .get_atom_name(m.name)
+                        .ok()
+                        .and_then(|c| c.reply().ok())
+                        .is_some_and(|a| a.name == connector.as_bytes())
+            })
+        })
 }
 
 /// Bounds of the monitor named `connector`, in root coordinates. Falls back

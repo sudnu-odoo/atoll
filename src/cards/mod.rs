@@ -1,9 +1,12 @@
 pub mod calendar;
 pub mod claude;
 pub mod clock;
+pub mod controls;
 pub mod lyrics;
 pub mod music;
+pub mod notifications;
 pub mod peek;
+pub mod shelf;
 pub mod todo;
 pub mod water;
 pub mod widgets;

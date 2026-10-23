@@ -31,5 +31,16 @@
     <file preprocess="xml-stripblanks" alias="atoll-event-symbolic.svg">icons/scalable/actions/atoll-event-symbolic.svg</file>
     <file preprocess="xml-stripblanks" alias="atoll-videocam-symbolic.svg">icons/scalable/actions/atoll-videocam-symbolic.svg</file>
     <file preprocess="xml-stripblanks" alias="atoll-clock-symbolic.svg">icons/scalable/actions/atoll-clock-symbolic.svg</file>
+    <file preprocess="xml-stripblanks" alias="atoll-tray-symbolic.svg">icons/scalable/actions/atoll-tray-symbolic.svg</file>
+    <file preprocess="xml-stripblanks" alias="atoll-wifi-symbolic.svg">icons/scalable/actions/atoll-wifi-symbolic.svg</file>
+    <file preprocess="xml-stripblanks" alias="atoll-wifi-off-symbolic.svg">icons/scalable/actions/atoll-wifi-off-symbolic.svg</file>
+    <file preprocess="xml-stripblanks" alias="atoll-bluetooth-off-symbolic.svg">icons/scalable/actions/atoll-bluetooth-off-symbolic.svg</file>
+    <file preprocess="xml-stripblanks" alias="atoll-airplane-symbolic.svg">icons/scalable/actions/atoll-airplane-symbolic.svg</file>
+    <file preprocess="xml-stripblanks" alias="atoll-speed-symbolic.svg">icons/scalable/actions/atoll-speed-symbolic.svg</file>
+    <file preprocess="xml-stripblanks" alias="atoll-lock-symbolic.svg">icons/scalable/actions/atoll-lock-symbolic.svg</file>
+    <file preprocess="xml-stripblanks" alias="atoll-volume-symbolic.svg">icons/scalable/actions/atoll-volume-symbolic.svg</file>
+    <file preprocess="xml-stripblanks" alias="atoll-volume-off-symbolic.svg">icons/scalable/actions/atoll-volume-off-symbolic.svg</file>
+    <file preprocess="xml-stripblanks" alias="atoll-brightness-symbolic.svg">icons/scalable/actions/atoll-brightness-symbolic.svg</file>
+    <file preprocess="xml-stripblanks" alias="atoll-controls-symbolic.svg">icons/scalable/actions/atoll-controls-symbolic.svg</file>
   </gresource>
 </gresources>

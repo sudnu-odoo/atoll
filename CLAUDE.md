@@ -19,7 +19,7 @@ It is **not** a GNOME Shell extension. It runs as its own process, so if it cras
 ## Safety rules (from a past login black-screen incident)
 
 1. **Never** create, install, enable, or modify GNOME Shell extensions.
-2. **Never** write to dconf/gsettings, except keys this project owns (it should not need any).
+2. **Never** write to dconf/gsettings, except keys this project owns (it should not need any). One exception (the user's decision): with Settings → Notifications on, Atoll sets `org.gnome.desktop.notifications show-banners` to false so notifications show only in the notch, and restores it when the setting is turned off or Atoll quits (and on the next start after a crash).
 3. **Never** touch `~/.config/monitors.xml`, GDM config, or `/etc/gdm3/`.
 4. Everything runs as a normal user process. No root at runtime.
 5. Installing system packages with `apt` is allowed, but list them and ask before running `sudo`.

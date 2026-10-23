@@ -237,6 +237,8 @@ scale trough {
 }
 scale highlight {
   min-height: 4px;
+  min-width: 4px; /* the theme's margins otherwise make it negative near 0 */
+  margin: 0;
   border-radius: 2px;
   border: none;
   background-color: @pink;
@@ -684,4 +686,168 @@ button.control.round.join {
   min-height: 28px;
   -gtk-icon-size: 15px;
   color: @pink;
+}
+
+/* Shelf card */
+.shelf-body {
+  margin-top: 10px;
+}
+button.control.shelf-clear {
+  min-height: 22px;
+  padding: 0 10px;
+  margin: 0;
+  border-radius: 999px;
+  font-size: 12px;
+  background-color: alpha(@bg_raised, 0.8);
+  color: @text;
+}
+button.control.shelf-clear:hover {
+  background-color: @bg_raised;
+}
+.shelf-tile {
+  padding: 8px 4px;
+  border-radius: 12px;
+  transition: background-color 120ms ease-out;
+}
+.shelf-tile:hover {
+  background-color: alpha(@bg_raised, 0.6);
+}
+.shelf-name {
+  font-size: 12px;
+  font-weight: 700;
+}
+.shelf-size {
+  font-size: 11px;
+  color: @muted;
+}
+button.control.shelf-remove {
+  min-width: 20px;
+  min-height: 20px;
+  margin: 2px;
+  -gtk-icon-size: 12px;
+  background-color: alpha(@bg_raised, 0.95);
+  color: @text;
+  opacity: 0;
+  transition: opacity 120ms ease-out;
+}
+overlay:hover > button.control.shelf-remove {
+  opacity: 1;
+}
+.shelf-empty-icon {
+  -gtk-icon-size: 28px;
+  color: @lavender;
+}
+.shelf-empty {
+  padding: 4px 0;
+}
+
+/* GTK outlines a widget while a drag hovers it; for the island that's the
+   whole invisible window. The shelf card opening is the signal instead. */
+window.island *:drop(active),
+window.island:drop(active) {
+  box-shadow: none;
+  outline: none;
+}
+
+window.settings .order-number {
+  font-family: "JetBrainsMono Nerd Font Mono";
+  color: @pink;
+  min-width: 14px;
+}
+window.settings .settings-card > box > .settings-row:not(:last-child) {
+  border-bottom: 1px solid alpha(@bg_raised, 0.9);
+}
+
+/* Controls card (quick settings) */
+.qs-tile {
+  border-radius: 14px;
+  background-color: alpha(@bg_raised, 0.6);
+}
+.qs-tile:hover {
+  background-color: alpha(@bg_raised, 0.95);
+}
+.qs-tile.on {
+  background-color: @pink;
+}
+button.control.qs-toggle {
+  min-height: 34px;
+  padding: 0 4px 0 10px;
+  margin: 0;
+  border-radius: 14px;
+  background: none;
+  -gtk-icon-size: 18px;
+}
+button.control.qs-more {
+  min-width: 26px;
+  min-height: 34px;
+  margin: 0;
+  padding: 0;
+  border-radius: 0 14px 14px 0;
+  -gtk-icon-size: 16px;
+  color: @lavender;
+  background: none;
+  border-left: 1px solid alpha(@bg, 0.35);
+}
+button.control.qs-more.plain {
+  min-height: 26px;
+  border: none;
+  border-radius: 999px;
+}
+.qs-tile image {
+  color: @lavender;
+}
+.qs-tile.on image,
+.qs-tile.on label {
+  color: @bg;
+}
+.qs-title {
+  font-size: 12px;
+  font-weight: 700;
+}
+.qs-subtitle {
+  font-size: 11px;
+  color: @lavender;
+}
+.qs-tile.on .qs-subtitle {
+  color: alpha(@bg, 0.75);
+}
+button.control.qs-slider-icon {
+  min-width: 30px;
+  min-height: 30px;
+  margin: 0;
+  -gtk-icon-size: 17px;
+  color: @lavender;
+}
+.qs-value {
+  min-width: 42px;
+}
+
+button.qs-item {
+  padding: 5px 10px;
+  border: none;
+  border-radius: 10px;
+  box-shadow: none;
+  background-color: alpha(@bg_raised, 0.45);
+}
+button.qs-item:hover {
+  background-color: alpha(@bg_raised, 0.85);
+}
+button.qs-item.active {
+  background-color: alpha(@pink, 0.16);
+}
+.qs-check {
+  -gtk-icon-size: 16px;
+  color: @pink;
+}
+
+.notif-body {
+  font-size: 12px;
+  color: @lavender;
+}
+
+.notif-icon {
+  border-radius: 10px;
+}
+button.notif-row {
+  padding: 8px 12px;
 }
