@@ -307,3 +307,37 @@ mod tests {
         .is_none());
     }
 }
+
+#[cfg(test)]
+mod filter_tests {
+    use super::*;
+
+    #[test]
+    fn interactive_programs_are_skipped() {
+        for cmd in [
+            "vim src/main.rs",
+            "sudo nvim /etc/hosts",
+            "/usr/bin/less log",
+            "ssh odoo@host",
+            "python3",
+        ] {
+            assert!(is_interactive(cmd), "{cmd}");
+        }
+        for cmd in [
+            "cargo build",
+            "odev test db",
+            "RUST_LOG=debug cargo run",
+            "sleep 20",
+        ] {
+            assert!(!is_interactive(cmd), "{cmd}");
+        }
+    }
+
+    #[test]
+    fn summaries_and_first_lines() {
+        assert_eq!(summarize(&json!({"command": "ls -la"})), "ls -la");
+        assert_eq!(summarize(&json!({"file_path": "/a/b.rs"})), "/a/b.rs");
+        assert!(summarize(&json!({"x": "y".repeat(500)})).ends_with('…'));
+        assert_eq!(first_line("\n## Done: shipped\nmore"), "Done: shipped");
+    }
+}

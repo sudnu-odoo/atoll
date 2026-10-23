@@ -428,3 +428,42 @@ fn download(url: &str) -> Result<Vec<u8>, String> {
         .map_err(|e| e.to_string())?;
     Ok(bytes)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn player_names() {
+        assert_eq!(display_name("org.mpris.MediaPlayer2.spotify"), "Spotify");
+        assert_eq!(
+            display_name("org.mpris.MediaPlayer2.brave.instance3573"),
+            "Brave"
+        );
+    }
+
+    fn track(playing: bool, at_secs: u64) -> NowPlaying {
+        NowPlaying {
+            player: "x".into(),
+            title: "t".into(),
+            artist: String::new(),
+            album: String::new(),
+            art_url: None,
+            length: Some(Duration::from_secs(200)),
+            playing,
+            position: Duration::from_secs(at_secs),
+            at: Instant::now(),
+            track_id: None,
+        }
+    }
+
+    #[test]
+    fn position_extrapolates_only_while_playing_and_stops_at_the_end() {
+        let paused = track(false, 30);
+        assert_eq!(paused.position_now(), Duration::from_secs(30));
+        let mut ended = track(true, 300);
+        ended.at = Instant::now();
+        assert_eq!(ended.position_now(), Duration::from_secs(200));
+        assert!(track(true, 30).position_now() >= Duration::from_secs(30));
+    }
+}

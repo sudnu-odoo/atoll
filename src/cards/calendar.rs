@@ -399,3 +399,20 @@ pub fn relative(start: i64, end: i64, now: i64) -> String {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::relative;
+
+    #[test]
+    fn relative_meeting_times() {
+        let now = 1_000_000;
+        assert_eq!(relative(now + 5 * 60, now + 65 * 60, now), "in 5 min");
+        assert_eq!(relative(now + 30, now + 3600, now), "in 1 min", "rounds up");
+        assert_eq!(
+            relative(now + 125 * 60, now + 185 * 60, now),
+            "in 2 h 5 min"
+        );
+        assert_eq!(relative(now - 60, now + 20 * 60, now), "now · 20 min left");
+    }
+}

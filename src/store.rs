@@ -7,6 +7,12 @@ use serde::de::DeserializeOwned;
 use serde::Serialize;
 
 fn xdg(var: &str, fallback: &str) -> Option<PathBuf> {
+    // Tests must never read or write the user's real to-dos, shelf, water
+    // log or settings: they get a private folder per test run.
+    if cfg!(test) {
+        let dir = std::env::temp_dir().join(format!("atoll-test-{}", std::process::id()));
+        return Some(dir.join(fallback).join("atoll"));
+    }
     let base = std::env::var_os(var)
         .map(PathBuf::from)
         .filter(|p| p.is_absolute())
@@ -45,4 +51,36 @@ pub fn write<T: Serialize>(path: &Path, value: &T) -> Result<(), String> {
     let tmp = path.with_extension("json.tmp");
     std::fs::write(&tmp, json).map_err(|e| fail(&e))?;
     std::fs::rename(&tmp, path).map_err(|e| fail(&e))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn paths_stay_out_of_the_users_home() {
+        let p = data_file("x.json").unwrap();
+        assert!(p.starts_with(std::env::temp_dir()), "{}", p.display());
+    }
+
+    #[test]
+    fn write_then_read_back() {
+        let p = data_file("store-roundtrip.json").unwrap();
+        write(&p, &vec![1, 2, 3]).unwrap();
+        assert_eq!(read::<Vec<i32>>(&p).unwrap(), Some(vec![1, 2, 3]));
+        assert!(
+            !p.with_extension("json.tmp").exists(),
+            "no temp file left behind"
+        );
+    }
+
+    #[test]
+    fn missing_is_none_and_broken_is_error() {
+        let missing = data_file("store-missing.json").unwrap();
+        assert_eq!(read::<Vec<i32>>(&missing).unwrap(), None);
+        let broken = data_file("store-broken.json").unwrap();
+        std::fs::create_dir_all(broken.parent().unwrap()).unwrap();
+        std::fs::write(&broken, b"{ not json").unwrap();
+        assert!(read::<Vec<i32>>(&broken).is_err());
+    }
 }

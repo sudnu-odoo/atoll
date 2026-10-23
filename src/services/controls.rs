@@ -325,7 +325,11 @@ fn volume() -> Option<(f64, bool)> {
         .args(["get-volume", SINK])
         .output()
         .ok()?;
-    let text = String::from_utf8_lossy(&out.stdout);
+    parse_volume(&String::from_utf8_lossy(&out.stdout))
+}
+
+/// "Volume: 0.48" or "Volume: 0.48 [MUTED]".
+fn parse_volume(text: &str) -> Option<(f64, bool)> {
     let level: f64 = text.split_whitespace().nth(1)?.parse().ok()?;
     Some((level, text.contains("MUTED")))
 }
@@ -688,7 +692,11 @@ fn sinks() -> Vec<MenuItem> {
     let Ok(out) = Process::new("wpctl").arg("status").output() else {
         return Vec::new();
     };
-    let text = String::from_utf8_lossy(&out.stdout);
+    parse_sinks(&String::from_utf8_lossy(&out.stdout))
+}
+
+/// The "Sinks:" section of `wpctl status`.
+fn parse_sinks(text: &str) -> Vec<MenuItem> {
     let mut in_sinks = false;
     let mut items = Vec::new();
     for line in text.lines() {
@@ -720,4 +728,45 @@ fn sinks() -> Vec<MenuItem> {
         });
     }
     items
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn volume_lines() {
+        assert_eq!(parse_volume("Volume: 0.48"), Some((0.48, false)));
+        assert_eq!(parse_volume("Volume: 0.30 [MUTED]"), Some((0.30, true)));
+        assert_eq!(parse_volume("garbage"), None);
+    }
+
+    #[test]
+    fn sinks_from_wpctl_status() {
+        let status = "Audio
+ ├─ Devices:
+ │      48. Family 17h HD Audio Controller [alsa]
+ │
+ ├─ Sinks:
+ │  *   56. Speaker + Headphones [vol: 0.48]
+ │      61. HDMI / DisplayPort 2 Output [vol: 1.00]
+ │
+ ├─ Sink endpoints:
+ │
+ ├─ Sources:
+ │  *   57. Microphone [vol: 1.00]
+";
+        let sinks = parse_sinks(status);
+        let got: Vec<(&str, &str, bool)> = sinks
+            .iter()
+            .map(|s| (s.id.as_str(), s.label.as_str(), s.active))
+            .collect();
+        assert_eq!(
+            got,
+            [
+                ("56", "Speaker + Headphones", true),
+                ("61", "HDMI / DisplayPort 2 Output", false)
+            ]
+        );
+    }
 }

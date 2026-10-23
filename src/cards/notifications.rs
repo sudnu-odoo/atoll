@@ -306,3 +306,17 @@ pub fn picture(n: &Notification, size: i32) -> gtk::Widget {
     image.set_valign(Align::Center);
     image.upcast()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::ago;
+
+    #[test]
+    fn relative_ages() {
+        assert_eq!(ago(-5), "now");
+        assert_eq!(ago(30), "now");
+        assert_eq!(ago(125), "2 min");
+        assert_eq!(ago(7200), "2 h");
+        assert_eq!(ago(200_000), "2 d");
+    }
+}

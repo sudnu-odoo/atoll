@@ -233,3 +233,65 @@ pub fn parse_hex(s: &str) -> Option<(f64, f64, f64)> {
     let c = |shift: u32| f64::from((v >> shift) & 0xff) / 255.0;
     Some((c(16), c(8), c(0)))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn hex_colors() {
+        assert_eq!(parse_hex("#FF0000"), Some((1.0, 0.0, 0.0)));
+        assert_eq!(
+            parse_hex("#ff8fb1").map(|c| (c.0 * 255.0).round()),
+            Some(255.0)
+        );
+        for bad in ["FF0000", "#FFF", "#GG0000", ""] {
+            assert_eq!(parse_hex(bad), None, "{bad}");
+        }
+    }
+
+    #[test]
+    fn sanitize_clamps_and_fixes_colors() {
+        let mut c = Config::default();
+        c.theme.accent = "pink".into();
+        c.water.goal_ml = 0;
+        c.water.remind_every_min = 1;
+        c.water.active_from_hour = 30;
+        c.water.active_to_hour = 5;
+        c.commands.min_seconds = 0;
+        let c = c.sanitized();
+        assert_eq!(c.theme.accent, Theme::default().accent);
+        assert_eq!(c.water.goal_ml, 250);
+        assert_eq!(c.water.remind_every_min, 10);
+        assert_eq!(c.water.active_from_hour, 23);
+        assert_eq!(c.water.active_to_hour, 24, "end stays after start");
+        assert_eq!(c.commands.min_seconds, 3);
+    }
+
+    #[test]
+    fn card_order_drops_unknown_and_appends_missing() {
+        let mut c = Config::default();
+        c.features.order = vec![
+            "shelf".into(),
+            "bogus".into(),
+            "music".into(),
+            "shelf".into(),
+        ];
+        let order = c.sanitized().features.order;
+        assert_eq!(order[..2], ["shelf".to_owned(), "music".to_owned()]);
+        assert_eq!(order.len(), CARDS.len(), "every card exactly once");
+        for card in CARDS {
+            assert!(order.iter().any(|o| o == card), "{card} missing");
+        }
+    }
+
+    #[test]
+    fn old_files_load_with_defaults() {
+        // A file from before most settings existed, with a since-removed key.
+        let json = r#"{"features": {"music": false, "bluetooth_peek": true}}"#;
+        let c: Config = serde_json::from_str(json).unwrap();
+        assert!(!c.features.music);
+        assert!(c.features.water, "missing keys take defaults");
+        assert_eq!(c.water.goal_ml, 2000);
+    }
+}

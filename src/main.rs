@@ -79,7 +79,9 @@ fn main() -> glib::ExitCode {
     // Clean exit (incl. SIGINT/SIGTERM, which quit through GTK): give GNOME
     // its banners back if Atoll had hidden them. Not from a second launch
     // (`atoll --settings`), which only forwarded to the running instance.
-    if !app.is_remote() {
+    // (Asking GTK `is_remote` here is invalid: the app is unregistered by
+    // now.)
+    if app::is_primary() {
         banners::restore();
     }
     code

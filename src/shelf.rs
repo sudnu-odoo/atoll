@@ -92,3 +92,40 @@ impl Shelf {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn real(name: &str) -> PathBuf {
+        Path::new(env!("CARGO_MANIFEST_DIR")).join(name)
+    }
+
+    fn shelf() -> Shelf {
+        let s = Shelf::new(|_| {});
+        s.handle(Command::Clear);
+        s
+    }
+
+    #[test]
+    fn newest_first_without_duplicates_and_removal() {
+        let s = shelf();
+        s.handle(Command::Add(vec![real("Cargo.toml")]));
+        s.handle(Command::Add(vec![real("src"), real("Cargo.toml")]));
+        assert_eq!(s.items(), vec![real("src"), real("Cargo.toml")]);
+        s.handle(Command::Remove(real("src")));
+        assert_eq!(s.items(), vec![real("Cargo.toml")]);
+        s.handle(Command::Clear);
+        assert!(s.items().is_empty());
+    }
+
+    #[test]
+    fn vanished_files_drop_off() {
+        let s = shelf();
+        s.handle(Command::Add(vec![
+            real("Cargo.toml"),
+            real("no-such-file.txt"),
+        ]));
+        assert_eq!(s.items(), vec![real("Cargo.toml")]);
+    }
+}

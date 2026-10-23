@@ -61,6 +61,12 @@ pub fn open_settings() {
     }
 }
 
+/// True in the instance that built the islands (not in a second launch
+/// that only forwarded its command line).
+pub fn is_primary() -> bool {
+    HUB.with(|h| h.borrow().is_some())
+}
+
 pub fn build(app: &Application) {
     // `activate` also runs when a second launch is forwarded here.
     if HUB.with(|h| h.borrow().is_some()) {

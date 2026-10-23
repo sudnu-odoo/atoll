@@ -282,3 +282,26 @@ fn strip_markup(s: &str) -> String {
         .replace("&quot;", "\"")
         .replace("&apos;", "'")
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn markup_is_stripped() {
+        assert_eq!(
+            strip_markup("<b>Hi</b> &amp; <a href='x'>bye</a>"),
+            "Hi & bye"
+        );
+    }
+
+    #[test]
+    fn icon_sources() {
+        assert!(icon_from_text("").is_none());
+        assert!(matches!(icon_from_text("/tmp/a.png"), Some(Icon::File(_))));
+        assert!(
+            matches!(icon_from_text("file:///tmp/a.png"), Some(Icon::File(p)) if p.starts_with("/tmp"))
+        );
+        assert!(matches!(icon_from_text("discord"), Some(Icon::Named(n)) if n == "discord"));
+    }
+}

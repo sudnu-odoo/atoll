@@ -101,3 +101,16 @@ pub fn control_button(classes: &[&str], icon: Option<&str>) -> gtk::Button {
     b.set_cursor_from_name(Some("pointer"));
     b
 }
+
+#[cfg(test)]
+mod tests {
+    use super::mmss;
+    use std::time::Duration;
+
+    #[test]
+    fn minutes_seconds() {
+        assert_eq!(mmss(Duration::from_secs(0)), "0:00");
+        assert_eq!(mmss(Duration::from_secs(65)), "1:05");
+        assert_eq!(mmss(Duration::from_secs(3725)), "62:05");
+    }
+}

@@ -96,55 +96,8 @@ impl Todo {
     }
 
     pub fn handle(self: &Rc<Self>, cmd: Command) {
-        {
-            let mut s = self.store.borrow_mut();
-            match cmd {
-                Command::Add(d) => {
-                    let text = d.text.trim().to_owned();
-                    if text.is_empty() {
-                        return;
-                    }
-                    s.next_id += 1;
-                    let id = s.next_id;
-                    let time = parse_time(&d.start);
-                    s.tasks.push(Task {
-                        id,
-                        text,
-                        done_on: None,
-                        // An end time alone means nothing.
-                        end_time: time.as_ref().and_then(|_| parse_time(&d.end)),
-                        time,
-                        reminded_on: None,
-                    });
-                }
-                Command::Toggle(id) => {
-                    if let Some(t) = s.tasks.iter_mut().find(|t| t.id == id) {
-                        t.done_on = match t.done_on {
-                            Some(_) => None,
-                            None => Some(today()),
-                        };
-                    }
-                }
-                Command::Edit(id, d) => {
-                    let text = d.text.trim().to_owned();
-                    if let Some(t) = s.tasks.iter_mut().find(|t| t.id == id) {
-                        if !text.is_empty() {
-                            t.text = text;
-                        }
-                        let time = parse_time(&d.start);
-                        t.end_time = time.as_ref().and_then(|_| parse_time(&d.end));
-                        if time != t.time {
-                            t.time = time;
-                            t.reminded_on = None; // new time: remind again
-                        }
-                    }
-                }
-                Command::Remove(id) => s.tasks.retain(|t| t.id != id),
-            }
-            // Done tasks from earlier days have served their purpose.
-            let day = today();
-            s.tasks
-                .retain(|t| t.done_on.as_ref().is_none_or(|d| *d == day));
+        if !apply(&mut self.store.borrow_mut(), cmd, &today()) {
+            return;
         }
         self.save();
         self.publish();
@@ -156,24 +109,7 @@ impl Todo {
     }
 
     pub fn view(&self) -> View {
-        let day = today();
-        let s = self.store.borrow();
-        let mut tasks: Vec<Task> = s
-            .tasks
-            .iter()
-            .filter(|t| t.done_on.as_ref().is_none_or(|d| *d == day))
-            .cloned()
-            .collect();
-        // Open first (timed ones by time, then untimed), then done.
-        tasks.sort_by(|a, b| {
-            (a.done_on.is_some(), a.time.is_none(), &a.time).cmp(&(
-                b.done_on.is_some(),
-                b.time.is_none(),
-                &b.time,
-            ))
-        });
-        let done_today = tasks.iter().filter(|t| t.done_on.is_some()).count();
-        View { tasks, done_today }
+        view(&self.store.borrow(), &today())
     }
 
     /// Arms one timer for the next timed task due today.
@@ -290,9 +226,90 @@ pub fn parse_time(input: &str) -> Option<String> {
     (h < 24 && m < 60).then(|| format!("{h:02}:{m:02}"))
 }
 
+/// Applies one change to the list. False when nothing changed (an empty
+/// task), so nothing needs saving.
+fn apply(s: &mut Store, cmd: Command, day: &str) -> bool {
+    match cmd {
+        Command::Add(d) => {
+            let text = d.text.trim().to_owned();
+            if text.is_empty() {
+                return false;
+            }
+            s.next_id += 1;
+            let id = s.next_id;
+            let time = parse_time(&d.start);
+            s.tasks.push(Task {
+                id,
+                text,
+                done_on: None,
+                // An end time alone means nothing.
+                end_time: time.as_ref().and_then(|_| parse_time(&d.end)),
+                time,
+                reminded_on: None,
+            });
+        }
+        Command::Toggle(id) => {
+            if let Some(t) = s.tasks.iter_mut().find(|t| t.id == id) {
+                t.done_on = match t.done_on {
+                    Some(_) => None,
+                    None => Some(day.to_owned()),
+                };
+            }
+        }
+        Command::Edit(id, d) => {
+            let text = d.text.trim().to_owned();
+            if let Some(t) = s.tasks.iter_mut().find(|t| t.id == id) {
+                if !text.is_empty() {
+                    t.text = text;
+                }
+                let time = parse_time(&d.start);
+                t.end_time = time.as_ref().and_then(|_| parse_time(&d.end));
+                if time != t.time {
+                    t.time = time;
+                    t.reminded_on = None; // new time: remind again
+                }
+            }
+        }
+        Command::Remove(id) => s.tasks.retain(|t| t.id != id),
+    }
+    // Done tasks from earlier days have served their purpose.
+    s.tasks
+        .retain(|t| t.done_on.as_ref().is_none_or(|d| d == day));
+    true
+}
+
+/// Today's tasks: open first (timed ones by time, then untimed), then done.
+fn view(s: &Store, day: &str) -> View {
+    let mut tasks: Vec<Task> = s
+        .tasks
+        .iter()
+        .filter(|t| t.done_on.as_ref().is_none_or(|d| d == day))
+        .cloned()
+        .collect();
+    tasks.sort_by(|a, b| {
+        (a.done_on.is_some(), a.time.is_none(), &a.time).cmp(&(
+            b.done_on.is_some(),
+            b.time.is_none(),
+            &b.time,
+        ))
+    });
+    let done_today = tasks.iter().filter(|t| t.done_on.is_some()).count();
+    View { tasks, done_today }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::parse_time;
+    use super::*;
+
+    const DAY: &str = "2026-10-23";
+
+    fn draft(text: &str, start: &str, end: &str) -> Draft {
+        Draft {
+            text: text.into(),
+            start: start.into(),
+            end: end.into(),
+        }
+    }
 
     #[test]
     fn lenient_times() {
@@ -304,11 +321,105 @@ mod tests {
             ("3pm", Some("15:00")),
             ("3:30 PM", Some("15:30")),
             ("12am", Some("00:00")),
+            ("12pm", Some("12:00")),
+            ("9", Some("09:00")),
             ("", None),
             ("25:00", None),
+            ("9:75", None),
             ("soon", None),
         ] {
             assert_eq!(parse_time(input).as_deref(), want, "{input}");
         }
+    }
+
+    #[test]
+    fn add_trims_and_rejects_empty() {
+        let mut s = Store::default();
+        assert!(!apply(&mut s, Command::Add(draft("   ", "", "")), DAY));
+        assert!(apply(
+            &mut s,
+            Command::Add(draft("  Call Dina ", "15:30", "16:00")),
+            DAY
+        ));
+        let t = &s.tasks[0];
+        assert_eq!(t.text, "Call Dina");
+        assert_eq!(t.time.as_deref(), Some("15:30"));
+        assert_eq!(t.end_time.as_deref(), Some("16:00"));
+    }
+
+    #[test]
+    fn end_time_needs_a_start() {
+        let mut s = Store::default();
+        apply(&mut s, Command::Add(draft("x", "", "16:00")), DAY);
+        assert_eq!(s.tasks[0].time, None);
+        assert_eq!(s.tasks[0].end_time, None);
+    }
+
+    #[test]
+    fn toggle_edit_remove() {
+        let mut s = Store::default();
+        apply(&mut s, Command::Add(draft("a", "9:00", "")), DAY);
+        let id = s.tasks[0].id;
+        apply(&mut s, Command::Toggle(id), DAY);
+        assert_eq!(s.tasks[0].done_on.as_deref(), Some(DAY));
+        apply(&mut s, Command::Toggle(id), DAY);
+        assert_eq!(s.tasks[0].done_on, None);
+
+        s.tasks[0].reminded_on = Some(DAY.into());
+        apply(&mut s, Command::Edit(id, draft("b", "10:00", "")), DAY);
+        assert_eq!(s.tasks[0].text, "b");
+        assert_eq!(s.tasks[0].time.as_deref(), Some("10:00"));
+        assert_eq!(
+            s.tasks[0].reminded_on, None,
+            "a new time re-arms the reminder"
+        );
+
+        apply(&mut s, Command::Edit(id, draft("  ", "10:00", "")), DAY);
+        assert_eq!(s.tasks[0].text, "b", "an empty edit keeps the text");
+
+        apply(&mut s, Command::Remove(id), DAY);
+        assert!(s.tasks.is_empty());
+    }
+
+    #[test]
+    fn yesterdays_done_tasks_drop_off() {
+        let mut s = Store::default();
+        apply(&mut s, Command::Add(draft("old", "", "")), DAY);
+        apply(&mut s, Command::Add(draft("open", "", "")), DAY);
+        s.tasks[0].done_on = Some("2026-10-22".into());
+        apply(&mut s, Command::Add(draft("new", "", "")), DAY);
+        let names: Vec<&str> = s.tasks.iter().map(|t| t.text.as_str()).collect();
+        assert_eq!(names, ["open", "new"]);
+    }
+
+    #[test]
+    fn view_orders_timed_open_then_untimed_then_done() {
+        let mut s = Store::default();
+        for (text, time) in [
+            ("untimed", ""),
+            ("late", "18:00"),
+            ("early", "08:00"),
+            ("done", "07:00"),
+        ] {
+            apply(&mut s, Command::Add(draft(text, time, "")), DAY);
+        }
+        let done = s
+            .tasks
+            .iter()
+            .find(|t| t.text == "done")
+            .map(|t| t.id)
+            .unwrap();
+        apply(&mut s, Command::Toggle(done), DAY);
+        let v = view(&s, DAY);
+        let names: Vec<&str> = v.tasks.iter().map(|t| t.text.as_str()).collect();
+        assert_eq!(names, ["early", "late", "untimed", "done"]);
+        assert_eq!(v.done_today, 1);
+    }
+
+    #[test]
+    fn minutes_of_day() {
+        assert_eq!(minutes("00:00"), Some(0));
+        assert_eq!(minutes("15:30"), Some(930));
+        assert_eq!(minutes("nope"), None);
     }
 }

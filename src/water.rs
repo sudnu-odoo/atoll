@@ -157,20 +157,9 @@ impl Water {
             first_hour,
             current_hour: minute / 60,
             reminders: c.reminders,
-            next_reminder_min: self.next_due(&c, &log, minute).map(|due| due - minute),
+            next_reminder_min: next_due(&c, &log, minute).map(|due| due - minute),
             can_undo: !log.drinks.is_empty(),
         })
-    }
-
-    /// Minute of today when the next reminder is due, if any.
-    fn next_due(&self, c: &config::Water, log: &Log, minute: u32) -> Option<u32> {
-        if !c.reminders {
-            return None;
-        }
-        let (from, to) = (c.active_from_hour * 60, c.active_to_hour * 60);
-        let since = log.drinks.last().map_or(from, |d| d.minute.max(from));
-        let due = (since + c.remind_every_min).max(minute.max(from));
-        (due < to).then_some(due)
     }
 
     fn reschedule(self: &Rc<Self>) {
@@ -181,7 +170,7 @@ impl Water {
         let due = {
             let c = self.config.borrow();
             let log = self.log.borrow();
-            self.next_due(&c, &log, minute)
+            next_due(&c, &log, minute)
         };
         // Nothing left today: check again just after midnight.
         let wait_min = due.map_or(24 * 60 - minute + 1, |d| d.saturating_sub(minute).max(1));
@@ -200,8 +189,7 @@ impl Water {
         let fire = now().is_some_and(|(_, minute)| {
             let c = self.config.borrow();
             let log = self.log.borrow();
-            self.next_due(&c, &log, minute)
-                .is_some_and(|due| due <= minute)
+            next_due(&c, &log, minute).is_some_and(|due| due <= minute)
         });
         if fire {
             if let Some(v) = self.view() {
@@ -255,5 +243,75 @@ fn reminder_peek(v: &View) -> Peek {
         title: "Time for some water".into(),
         subtitle: format!("{} / {} L today", litres(v.total_ml), litres(v.goal_ml)),
         percent: Some(100.0 * f64::from(v.total_ml) / f64::from(v.goal_ml.max(1))),
+    }
+}
+
+/// Minute of today when the next reminder is due, if any: an interval after
+/// the last drink (or the start of active hours), never before now, and
+/// only inside active hours.
+fn next_due(c: &config::Water, log: &Log, minute: u32) -> Option<u32> {
+    if !c.reminders {
+        return None;
+    }
+    let (from, to) = (c.active_from_hour * 60, c.active_to_hour * 60);
+    let since = log.drinks.last().map_or(from, |d| d.minute.max(from));
+    let due = (since + c.remind_every_min).max(minute.max(from));
+    (due < to).then_some(due)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn cfg() -> config::Water {
+        config::Water {
+            goal_ml: 2000,
+            glass_ml: 250,
+            reminders: true,
+            remind_every_min: 60,
+            active_from_hour: 9,
+            active_to_hour: 21,
+        }
+    }
+
+    fn log(drinks: &[u32]) -> Log {
+        Log {
+            day: "2026-10-23".into(),
+            drinks: drinks
+                .iter()
+                .map(|&minute| Drink { minute, ml: 250 })
+                .collect(),
+        }
+    }
+
+    #[test]
+    fn first_reminder_is_an_interval_after_active_hours_start() {
+        // 07:00, nothing drunk: due 10:00 (09:00 + 60).
+        assert_eq!(next_due(&cfg(), &log(&[]), 7 * 60), Some(10 * 60));
+    }
+
+    #[test]
+    fn counts_from_the_last_drink() {
+        // Drank at 11:15: due 12:15.
+        assert_eq!(
+            next_due(&cfg(), &log(&[600, 675]), 11 * 60 + 20),
+            Some(12 * 60 + 15)
+        );
+    }
+
+    #[test]
+    fn overdue_means_now() {
+        // Last drink 10:00, it's 13:00: due right now.
+        assert_eq!(next_due(&cfg(), &log(&[600]), 13 * 60), Some(13 * 60));
+    }
+
+    #[test]
+    fn nothing_outside_active_hours_or_when_off() {
+        assert_eq!(next_due(&cfg(), &log(&[20 * 60 + 30]), 20 * 60 + 40), None);
+        let off = config::Water {
+            reminders: false,
+            ..cfg()
+        };
+        assert_eq!(next_due(&off, &log(&[]), 10 * 60), None);
     }
 }

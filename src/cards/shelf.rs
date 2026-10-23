@@ -312,3 +312,23 @@ fn human_size(bytes: u64) -> String {
         format!("{size:.1} {}", UNITS[unit])
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sizes() {
+        assert_eq!(human_size(512), "512 B");
+        assert_eq!(human_size(2048), "2.0 KB");
+        assert_eq!(human_size(2_500_000), "2.4 MB");
+    }
+
+    #[test]
+    fn images_by_extension() {
+        assert!(is_image("Beach.JPG"));
+        assert!(is_image("x.webp"));
+        assert!(!is_image("notes.txt"));
+        assert!(!is_image("png"));
+    }
+}
