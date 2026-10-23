@@ -860,7 +860,7 @@ impl Island {
         self.next.set_margin_end(inset);
         self.next.set_margin_top(top);
         self.translate_button.set_margin_end(inset);
-        self.translate_button.set_margin_top(top + 34);
+        self.translate_button.set_margin_top(top + 48);
         self.dots.set_margin_top(h as i32 - 11);
 
         while let Some(child) = self.dots.first_child() {
