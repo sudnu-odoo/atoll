@@ -186,6 +186,13 @@ button.control.pager {
   background-color: alpha(@bg_raised, 0.6);
   color: @lavender;
 }
+button.control.pager.translate {
+  -gtk-icon-size: 16px;
+}
+button.control.pager.translate.on {
+  background-color: alpha(@pink, 0.22);
+  color: @pink;
+}
 .dots .dot {
   min-height: 4px;
   border-radius: 2px;

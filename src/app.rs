@@ -84,6 +84,7 @@ pub fn build(app: &Application) {
     let (bt_tx, bt_rx) = async_channel::unbounded();
     let (water_tx, water_rx) = async_channel::unbounded();
     let (settings_tx, settings_rx) = async_channel::unbounded();
+    let (translate_tx, translate_rx) = async_channel::unbounded::<bool>();
     let (claude_tx, claude_rx) = async_channel::unbounded();
     let (answer_tx, answer_rx) = async_channel::unbounded();
     let (cal_tx, cal_rx) = async_channel::unbounded();
@@ -121,6 +122,7 @@ pub fn build(app: &Application) {
             claude_answers: answer_tx,
             todo_commands: todo_tx,
             calendar_months,
+            set_translate: translate_tx,
             shelf_commands: shelf_tx,
             controls_commands,
             clear_notifications: clear_tx,
@@ -316,6 +318,8 @@ pub fn build(app: &Application) {
     forward(claude_rx, move |incoming| h.on_claude(incoming));
     let h = hub.clone();
     forward(answer_rx, move |reply| h.answer_claude(reply));
+    let h = hub.clone();
+    forward(translate_rx, move |on| h.set_translate(on));
     forward(settings_rx, move |()| hub.open_settings());
 }
 
@@ -508,8 +512,24 @@ impl Hub {
     }
 
     /// Applies edited settings live and saves them.
+    /// From the lyrics panel's button. Saved without rebuilding the islands
+    /// (that would close the open card).
+    fn set_translate(self: &Rc<Self>, on: bool) {
+        let config = {
+            let mut c = self.config.borrow_mut();
+            c.features.translate_lyrics = on;
+            c.clone()
+        };
+        config.save();
+        self.deps.borrow_mut().features.translate_lyrics = on;
+        self.each(|i| i.set_translate(on));
+    }
+
     fn apply_settings(self: &Rc<Self>, new: Config) {
-        let new = new.sanitized();
+        let mut new = new.sanitized();
+        // Not in the Settings window (its copy may be stale): keep the
+        // lyrics button's choice.
+        new.features.translate_lyrics = self.config.borrow().features.translate_lyrics;
         let old = self.config.replace(new.clone());
         new.save();
         if format!("{:?}", old.theme) != format!("{:?}", new.theme) {

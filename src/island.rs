@@ -98,6 +98,8 @@ pub struct Deps {
     pub clear_notifications: async_channel::Sender<()>,
     /// Ask the calendar service for a month (answered via `on_month`).
     pub calendar_months: async_channel::Sender<(i32, u32)>,
+    /// The lyrics translate button: on/off, remembered by the app.
+    pub set_translate: async_channel::Sender<bool>,
     pub features: Features,
 }
 
@@ -144,6 +146,9 @@ pub struct Island {
     next: gtk::Button,
     dots: gtk::Box,
     gear: gtk::Button,
+    /// Under the › arrow, only beside open lyrics.
+    translate_button: gtk::Button,
+    translate: Cell<bool>,
     peek: PeekCard,
     peek_timer: RefCell<Option<glib::SourceId>>,
     queued_peek: RefCell<Option<(Peek, std::time::Instant)>>,
@@ -251,6 +256,7 @@ impl Island {
             shelf_commands,
             controls_commands,
             clear_notifications,
+            set_translate,
             features,
         } = deps;
         let size = Rc::new(Cell::new(COLLAPSED));
@@ -334,6 +340,19 @@ impl Island {
         root.add_overlay(&next);
         root.add_overlay(&dots);
         root.add_overlay(&gear);
+        let translate_button =
+            control_button(&["pager", "translate"], Some("atoll-translate-symbolic"));
+        translate_button.set_tooltip_text(Some("Translate to English"));
+        translate_button.set_halign(Align::End);
+        translate_button.set_valign(Align::Start);
+        translate_button.set_visible(false);
+        if features.translate_lyrics {
+            translate_button.add_css_class("on");
+        }
+        translate_button.connect_clicked(move |b| {
+            let _ = set_translate.try_send(!b.has_css_class("on"));
+        });
+        root.add_overlay(&translate_button);
 
         let island = Self {
             root,
@@ -356,6 +375,8 @@ impl Island {
             next,
             dots,
             gear,
+            translate: Cell::new(translate_button.has_css_class("on")),
+            translate_button,
             state: Cell::new(State::Collapsed),
             has_music: Cell::new(false),
             size,
@@ -666,6 +687,21 @@ impl Island {
         });
     }
 
+    /// Translation switched from any island's button: all follow, and the
+    /// open lyrics are fetched again with (or without) English lines.
+    pub fn set_translate(self: &Rc<Self>, on: bool) {
+        if self.translate.replace(on) == on {
+            return;
+        }
+        if on {
+            self.translate_button.add_css_class("on");
+        } else {
+            self.translate_button.remove_css_class("on");
+        }
+        self.lyrics_loaded.replace(None);
+        self.request_lyrics();
+    }
+
     fn toggle_lyrics(self: &Rc<Self>) {
         let on = !self.lyrics_mode.get();
         self.lyrics_mode.set(on);
@@ -697,7 +733,7 @@ impl Island {
         let _ = self.lyrics_requests.try_send(lyrics::Request {
             key,
             length: self.length.get(),
-            translate: self.features.translate_lyrics,
+            translate: self.translate.get(),
         });
     }
 
@@ -804,6 +840,8 @@ impl Island {
             // Centered on the cards' top row (16px padding + 26px row).
             self.gear.set_margin_top(16);
         }
+        let lyrics_open = visible && self.expanded_page() == ("music", EXPANDED_LYRICS);
+        self.translate_button.set_visible(lyrics_open);
         let pages = self.pages();
         let show = visible && pages.len() > 1;
         self.prev.set_visible(show);
@@ -821,6 +859,8 @@ impl Island {
         self.prev.set_margin_top(top);
         self.next.set_margin_end(inset);
         self.next.set_margin_top(top);
+        self.translate_button.set_margin_end(inset);
+        self.translate_button.set_margin_top(top + 34);
         self.dots.set_margin_top(h as i32 - 11);
 
         while let Some(child) = self.dots.first_child() {

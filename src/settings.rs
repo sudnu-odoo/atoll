@@ -241,14 +241,6 @@ fn features_section(state: &Rc<RefCell<Config>>, on_change: &OnChange) -> gtk::B
         |c| c.features.lyrics,
         |c, v| c.features.lyrics = v,
     );
-    let translate = switch(
-        state,
-        on_change,
-        "Translate lyrics",
-        "English lines under songs in other languages (sends the lyrics to Google Translate)",
-        |c| c.features.translate_lyrics,
-        |c, v| c.features.translate_lyrics = v,
-    );
     let water = switch_with(
         state,
         on_change,
@@ -258,7 +250,7 @@ fn features_section(state: &Rc<RefCell<Config>>, on_change: &OnChange) -> gtk::B
         |c, v| c.features.water = v,
     );
     let rows = [
-        feature(music, &[lyrics, translate]),
+        feature(music, &[lyrics]),
         switch(
             state,
             on_change,

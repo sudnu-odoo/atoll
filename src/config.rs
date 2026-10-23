@@ -58,6 +58,7 @@ pub struct Features {
     pub music: bool,
     pub lyrics: bool,
     /// English lines under foreign lyrics (sends lyric text to Google).
+    /// Toggled from the lyrics panel's button, remembered here.
     pub translate_lyrics: bool,
     pub eyes: bool,
     pub water: bool,
