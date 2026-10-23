@@ -16,10 +16,13 @@ pub struct NotificationsCard {
     list: gtk::Box,
     empty: Label,
     clear: gtk::Button,
+    /// `None` clears all, `Some(id)` removes one.
+    on_clear: Rc<dyn Fn(Option<u64>)>,
 }
 
 impl NotificationsCard {
-    pub fn new(on_clear: impl Fn() + 'static) -> Rc<Self> {
+    pub fn new(on_clear: impl Fn(Option<u64>) + 'static) -> Rc<Self> {
+        let on_clear: Rc<dyn Fn(Option<u64>)> = Rc::new(on_clear);
         // Top row (over the GNOME bar; Clear is clicked through the island's
         // bar-click handling).
         let title = gtk::Box::builder().spacing(6).build();
@@ -37,7 +40,8 @@ impl NotificationsCard {
         );
         let clear = control_button(&["shelf-clear"], None);
         clear.set_label("Clear");
-        clear.connect_clicked(move |_| on_clear());
+        let clear_all = on_clear.clone();
+        clear.connect_clicked(move |_| clear_all(None));
         title.append(&clear);
         let time = Label::builder().css_classes(["clock"]).build();
         live_clock(&time, "%H:%M:%S");
@@ -85,6 +89,7 @@ impl NotificationsCard {
             list,
             empty,
             clear,
+            on_clear,
         });
         card.update(&[]);
         card
@@ -102,12 +107,12 @@ impl NotificationsCard {
         }
         let now = glib::DateTime::now_local().map_or(0, |t| t.to_unix());
         for n in items {
-            self.list.append(&row(n, now));
+            self.list.append(&row(n, now, self.on_clear.clone()));
         }
     }
 }
 
-fn row(n: &Notification, now: i64) -> gtk::Button {
+fn row(n: &Notification, now: i64, on_clear: Rc<dyn Fn(Option<u64>)>) -> gtk::Button {
     let time = Label::builder()
         .label(ago(now - n.at))
         .css_classes(["qs-subtitle"])
@@ -176,6 +181,8 @@ fn row(n: &Notification, now: i64) -> gtk::Button {
     let (click, app, n) = (n.click.clone(), app_for(n), n.clone());
     button.connect_clicked(move |_| {
         use crate::services::notifications::{activate_app_action, activate_via_shell, Click};
+        // Opened means seen: it leaves the list, like GNOME's own.
+        on_clear(Some(n.id));
         let (click, app) = (click.clone(), app.clone());
         let answer = activate_via_shell(&n);
         glib::spawn_future_local(async move {

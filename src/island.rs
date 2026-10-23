@@ -95,7 +95,8 @@ pub struct Deps {
     pub todo_commands: async_channel::Sender<crate::todo::Command>,
     pub shelf_commands: async_channel::Sender<crate::shelf::Command>,
     pub controls_commands: async_channel::Sender<crate::services::controls::Command>,
-    pub clear_notifications: async_channel::Sender<()>,
+    /// `None` clears all; `Some(id)` removes one (opened from the card).
+    pub clear_notifications: async_channel::Sender<Option<u64>>,
     /// Ask the calendar service for a month (answered via `on_month`).
     pub calendar_months: async_channel::Sender<(i32, u32)>,
     /// The lyrics translate button: on/off, remembered by the app.
@@ -294,8 +295,8 @@ impl Island {
         stack.add_named(&shelf.root, Some("shelf"));
         let controls = ControlsCard::new(controls_commands, on_controls_typing);
         stack.add_named(&controls.root, Some("controls"));
-        let notifications = NotificationsCard::new(move || {
-            let _ = clear_notifications.try_send(());
+        let notifications = NotificationsCard::new(move |which| {
+            let _ = clear_notifications.try_send(which);
         });
         stack.add_named(&notifications.root, Some("notifications"));
         let calendar = CalendarCard::new(move |y, m| {

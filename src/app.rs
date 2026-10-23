@@ -94,7 +94,7 @@ pub fn build(app: &Application) {
     let (controls_tx, controls_rx) = async_channel::unbounded();
     let controls_commands = controls::spawn(controls_tx);
     let (notif_tx, notif_rx) = async_channel::unbounded();
-    let (clear_tx, clear_rx) = async_channel::unbounded::<()>();
+    let (clear_tx, clear_rx) = async_channel::unbounded::<Option<u64>>();
     notifications::spawn(notif_tx);
     // GNOME's banners follow the setting; this also repairs them after a
     // crash, when the setting is now off but Atoll had hidden them.
@@ -249,10 +249,14 @@ pub fn build(app: &Application) {
         });
     });
     let h = Rc::downgrade(&hub);
-    forward(clear_rx, move |()| {
+    forward(clear_rx, move |which: Option<u64>| {
         if let Some(hub) = h.upgrade() {
-            hub.notifications.borrow_mut().clear();
-            hub.each(|i| i.on_notifications(&[]));
+            match which {
+                Some(id) => hub.notifications.borrow_mut().retain(|n| n.id != id),
+                None => hub.notifications.borrow_mut().clear(),
+            }
+            let items = hub.notifications.borrow().clone();
+            hub.each(|i| i.on_notifications(&items));
         }
     });
     let h = Rc::downgrade(&hub);

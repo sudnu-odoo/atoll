@@ -16,6 +16,8 @@ use zbus::{Connection, MatchRule, MessageStream};
 
 #[derive(Clone, Debug)]
 pub struct Notification {
+    /// Atoll's own id, to remove just this one when it's opened.
+    pub id: u64,
     /// Human app name ("Brave", "Discord"), possibly empty.
     pub app: String,
     /// Desktop file id ("brave-browser"), to bring the app forward.
@@ -194,6 +196,12 @@ async fn run(updates: &async_channel::Sender<Notification>) -> zbus::Result<()> 
     Ok(())
 }
 
+fn next_id() -> u64 {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static NEXT: AtomicU64 = AtomicU64::new(1);
+    NEXT.fetch_add(1, Ordering::Relaxed)
+}
+
 fn now() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -239,6 +247,7 @@ fn freedesktop(msg: &zbus::Message) -> Option<Notification> {
         .or_else(|| path.as_deref().and_then(icon_from_text))
         .or_else(|| icon_from_text(&app_icon));
     Some(Notification {
+        id: next_id(),
         app,
         desktop_entry,
         title: summary,
@@ -272,6 +281,7 @@ fn gtk(msg: &zbus::Message) -> Option<Notification> {
         })
         .unwrap_or(Click::OpenApp);
     Some(Notification {
+        id: next_id(),
         app,
         desktop_entry: Some(app_id),
         title: text("title"),
