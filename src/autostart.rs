@@ -15,13 +15,21 @@ fn entry_path() -> Option<PathBuf> {
     Some(base.join("autostart").join(FILE))
 }
 
-/// The installed binary when there is one, so a login never runs a stale
-/// debug build; otherwise the binary running now.
-fn binary() -> Option<PathBuf> {
-    let installed = std::env::var_os("HOME")
-        .map(|h| PathBuf::from(h).join(".local/bin/atoll"))
-        .filter(|p| p.is_file());
-    installed.or_else(|| std::env::current_exe().ok())
+/// The installed binary: the one running now, or, from a development
+/// build, an installed copy (package or install.sh). `None` when only a
+/// development build exists, so a login never starts a stale debug build.
+pub fn installed() -> Option<PathBuf> {
+    let current = std::env::current_exe().ok();
+    if current
+        .as_ref()
+        .is_some_and(|p| !p.components().any(|c| c.as_os_str() == "target"))
+    {
+        return current;
+    }
+    let user = std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local/bin/atoll"));
+    user.into_iter()
+        .chain([PathBuf::from("/usr/bin/atoll")])
+        .find(|p| p.is_file())
 }
 
 fn entry(exec: &std::path::Path) -> String {
@@ -47,7 +55,10 @@ pub fn apply(on: bool) {
     }
     let Some(path) = entry_path() else { return };
     if on {
-        let Some(exec) = binary() else { return };
+        let Some(exec) = installed() else {
+            tracing::info!("start at login waits until Atoll is installed");
+            return;
+        };
         let result = path
             .parent()
             .map_or(Ok(()), std::fs::create_dir_all)

@@ -68,6 +68,7 @@ pub fn open(
                 |c| c.autostart,
                 |c, v| c.autostart = v,
             ),
+            bridge_row(),
         ],
     ));
     content.append(&features_section(&state, &on_change));
@@ -133,6 +134,47 @@ fn section(title: &str, rows: &[gtk::Widget]) -> gtk::Box {
     }
     b.append(&card);
     b
+}
+
+/// The Atoll Bridge extension: its live state, and a switch that turns it
+/// on or off for this user (only ever when the user flips it).
+fn bridge_row() -> gtk::Widget {
+    use crate::bridge::{self, Status};
+    let sw = gtk::Switch::builder().sensitive(false).build();
+    let widget = row("Atoll Bridge", "Checking…", &sw);
+    let subtitle = widget
+        .first_child()
+        .and_then(|text| text.last_child())
+        .and_downcast::<Label>();
+    // Set while the switch is moved to match GNOME's answer, so that
+    // move isn't taken for the user's click.
+    let syncing = Rc::new(std::cell::Cell::new(false));
+    let show: Rc<dyn Fn(Status)> = {
+        let (sw, syncing) = (sw.clone(), syncing.clone());
+        Rc::new(move |status: Status| {
+            if let Some(l) = &subtitle {
+                l.set_label(&format!(
+                    "Open notifications like GNOME's banners. {}",
+                    status.describe()
+                ));
+            }
+            syncing.set(true);
+            sw.set_active(status == Status::On);
+            syncing.set(false);
+            sw.set_sensitive(matches!(status, Status::On | Status::Off | Status::Error));
+        })
+    };
+    let first = show.clone();
+    glib::spawn_future_local(async move { first(bridge::status().await) });
+    sw.connect_active_notify(move |sw| {
+        if syncing.get() {
+            return;
+        }
+        let (on, show) = (sw.is_active(), show.clone());
+        sw.set_sensitive(false);
+        glib::spawn_future_local(async move { show(bridge::set(on).await) });
+    });
+    widget
 }
 
 fn row(title: &str, subtitle: &str, control: &impl IsA<gtk::Widget>) -> gtk::Widget {

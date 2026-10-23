@@ -104,6 +104,7 @@ pub fn build(app: &Application) {
         banners::restore();
     }
     autostart::apply(config.autostart);
+    crate::shell::refresh_saved();
     claude::spawn(claude_tx);
     // Services always run (they idle on D-Bus signals at no cost); whether
     // their output is shown is decided per event, so toggling a feature in

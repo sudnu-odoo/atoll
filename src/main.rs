@@ -1,6 +1,7 @@
 mod app;
 mod autostart;
 mod banners;
+mod bridge;
 mod cards;
 mod config;
 mod hook;

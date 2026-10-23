@@ -6,6 +6,25 @@ notch disappears.
 
 ## Install
 
+### As a package (recommended)
+
+```bash
+packaging/build-deb.sh
+```
+
+This builds `target/debian/atoll_<version>_amd64.deb`. Install it by
+double-clicking it (App Center), or with
+`sudo apt install ./target/debian/atoll_*.deb`. The package includes the
+Atoll Bridge extension. To finish:
+
+1. Log out and back in, so GNOME Shell finds the extension.
+2. Open Atoll from the app menu. In Settings → General, turn on
+   **Atoll Bridge** and **Start at login**.
+
+To remove it, run `sudo apt remove atoll`.
+
+### For your user only, without a package
+
 Needs Rust and the GTK 4 development files (`libgtk-4-dev`).
 
 ```bash
