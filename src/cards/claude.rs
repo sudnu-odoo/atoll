@@ -57,14 +57,25 @@ impl ClaudeCard {
                 .css_classes(["caps", "accent"])
                 .build(),
         );
-        let project = Label::builder().css_classes(["caps", "muted"]).build();
-        title.append(&project);
-        let countdown = Label::builder().css_classes(["time"]).build();
-        let top = gtk::CenterBox::builder()
-            .css_classes(["card-top"])
-            .start_widget(&title)
-            .end_widget(&countdown)
+        // Project names can be long ("19.0-sejatibrands-6634496-sudnu");
+        // they shorten rather than widen the card.
+        let project = Label::builder()
+            .css_classes(["caps", "muted"])
+            .ellipsize(gtk::pango::EllipsizeMode::End)
+            .xalign(0.0)
+            .hexpand(true)
             .build();
+        title.append(&project);
+        title.set_hexpand(true);
+        let countdown = Label::builder().css_classes(["time"]).build();
+        // A plain box, not a CenterBox: a CenterBox asks for twice its widest
+        // side, which made the card wider than the notch.
+        let top = gtk::Box::builder()
+            .css_classes(["card-top"])
+            .spacing(12)
+            .build();
+        top.append(&title);
+        top.append(&countdown);
 
         let body = gtk::Box::builder()
             .orientation(Orientation::Vertical)
