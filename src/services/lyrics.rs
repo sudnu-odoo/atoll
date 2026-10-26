@@ -43,8 +43,16 @@ pub struct Line {
 #[derive(Clone)]
 pub struct Update {
     pub key: Key,
-    /// `None` when the song has no synced lyrics (or the lookup failed).
+    /// `None` when the song has no lyrics (or the lookup failed).
     pub lines: Option<Vec<Line>>,
+    /// False for plain lyrics, whose timing is only an even estimate.
+    pub synced: bool,
+}
+
+#[derive(Clone)]
+struct Found {
+    lines: Vec<Line>,
+    synced: bool,
 }
 
 pub fn spawn(updates: async_channel::Sender<Update>) -> async_channel::Sender<Request> {
@@ -63,10 +71,10 @@ pub fn spawn(updates: async_channel::Sender<Update>) -> async_channel::Sender<Re
                     return;
                 }
             };
-            let mut cache: HashMap<Key, Option<Vec<Line>>> = HashMap::new();
+            let mut cache: HashMap<Key, Option<Found>> = HashMap::new();
             let mut translated: HashMap<Key, Option<Vec<Line>>> = HashMap::new();
             while let Ok(req) = rx.recv_blocking() {
-                let mut lines = match cache.get(&req.key) {
+                let found = match cache.get(&req.key) {
                     Some(hit) => hit.clone(),
                     None => {
                         let found = lookup(&client, &req).unwrap_or_else(|e| {
@@ -77,6 +85,8 @@ pub fn spawn(updates: async_channel::Sender<Update>) -> async_channel::Sender<Re
                         found
                     }
                 };
+                let synced = found.as_ref().is_some_and(|f| f.synced);
+                let mut lines = found.map(|f| f.lines);
                 if req.translate {
                     if let Some(original) = &lines {
                         let done = translated.entry(req.key.clone()).or_insert_with(|| {
@@ -94,6 +104,7 @@ pub fn spawn(updates: async_channel::Sender<Update>) -> async_channel::Sender<Re
                     .send_blocking(Update {
                         key: req.key,
                         lines,
+                        synced,
                     })
                     .is_err()
                 {
@@ -112,35 +123,129 @@ pub fn spawn(updates: async_channel::Sender<Update>) -> async_channel::Sender<Re
 struct Hit {
     duration: Option<f64>,
     synced_lyrics: Option<String>,
+    plain_lyrics: Option<String>,
 }
 
+/// Synced lyrics of the right length when there are any; otherwise plain
+/// lyrics, paced evenly over the song. Tries the title as the player gives
+/// it, then cleaned of release notes ("(Live)", "- Remastered 2011", ...),
+/// which LRCLIB entries usually leave out.
 fn lookup(
     client: &reqwest::blocking::Client,
     req: &Request,
-) -> Result<Option<Vec<Line>>, Box<dyn std::error::Error>> {
-    let body = client
-        .get(API)
-        .query(&[
-            ("track_name", req.key.title.as_str()),
-            ("artist_name", req.key.artist.as_str()),
-        ])
-        .send()?
-        .error_for_status()?
-        .bytes()?;
-    let hits: Vec<Hit> = serde_json::from_slice(&body)?;
-
+) -> Result<Option<Found>, Box<dyn std::error::Error>> {
+    let mut attempts = vec![(req.key.title.clone(), req.key.artist.clone())];
+    let cleaned = (clean_title(&req.key.title), main_artist(&req.key.artist));
+    if cleaned != attempts[0] && !cleaned.0.is_empty() {
+        attempts.push(cleaned);
+    }
     let close = |h: &Hit| match (req.length, h.duration) {
         (Some(len), Some(d)) => (len.as_secs_f64() - d).abs() <= DURATION_SLACK.as_secs_f64(),
         _ => true,
     };
-    let best = hits
+    let mut plain: Option<String> = None;
+    for (title, artist) in &attempts {
+        let body = client
+            .get(API)
+            .query(&[
+                ("track_name", title.as_str()),
+                ("artist_name", artist.as_str()),
+            ])
+            .send()?
+            .error_for_status()?
+            .bytes()?;
+        // LRCLIB answers some odd titles with an error object, not a list.
+        let hits: Vec<Hit> = serde_json::from_slice(&body).unwrap_or_default();
+        let synced = hits
+            .iter()
+            .filter(|h| close(h))
+            .filter_map(|h| h.synced_lyrics.as_deref())
+            .map(parse_lrc)
+            .find(|lines| !lines.is_empty());
+        if let Some(lines) = synced {
+            return Ok(Some(Found {
+                lines,
+                synced: true,
+            }));
+        }
+        // A synced text of another length (e.g. the studio version of a live
+        // recording) would run out of step; its words are still right.
+        plain = plain.or_else(|| {
+            hits.iter().find_map(|h| {
+                h.plain_lyrics
+                    .clone()
+                    .filter(|p| !p.trim().is_empty())
+                    .or_else(|| h.synced_lyrics.as_deref().map(strip_stamps))
+            })
+        });
+    }
+    Ok(plain.and_then(|p| {
+        let lines = pace(&p, req.length?);
+        (!lines.is_empty()).then_some(Found {
+            lines,
+            synced: false,
+        })
+    }))
+}
+
+/// "Song (Live at X)" / "Song - Remastered 2011" / "Song [feat. Y]" → "Song".
+fn clean_title(title: &str) -> String {
+    let mut t = title.to_owned();
+    for (open, close) in [('(', ')'), ('[', ']')] {
+        while let (Some(a), Some(b)) = (t.find(open), t.find(close)) {
+            if b <= a {
+                break;
+            }
+            t.replace_range(a..=b, "");
+        }
+    }
+    if let Some(i) = t.find(" - ") {
+        t.truncate(i);
+    }
+    t.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// "A, B & C feat. D" → "A".
+fn main_artist(artist: &str) -> String {
+    let lower = artist.to_lowercase();
+    let cut = [",", " & ", " feat", " ft.", " x ", " with "]
         .iter()
-        .filter(|h| h.synced_lyrics.is_some())
-        .find(|h| close(h))
-        .and_then(|h| h.synced_lyrics.as_deref())
-        .map(parse_lrc)
-        .filter(|lines| !lines.is_empty());
-    Ok(best)
+        .filter_map(|sep| lower.find(sep))
+        .min()
+        .unwrap_or(artist.len());
+    artist.get(..cut).unwrap_or(artist).trim().to_owned()
+}
+
+fn strip_stamps(lrc: &str) -> String {
+    parse_lrc(lrc)
+        .into_iter()
+        .map(|l| l.text)
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// Plain lyrics spread evenly between a short intro and outro: close enough
+/// to follow along, and labelled as not synced.
+fn pace(text: &str, length: Duration) -> Vec<Line> {
+    let rows: Vec<&str> = text
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .collect();
+    if rows.is_empty() {
+        return Vec::new();
+    }
+    let len = length.as_secs_f64();
+    let (start, end) = (len * 0.08, len * 0.92);
+    let step = (end - start) / rows.len() as f64;
+    rows.iter()
+        .enumerate()
+        .map(|(i, text)| Line {
+            at: Duration::from_secs_f64(start + step * i as f64),
+            text: (*text).to_owned(),
+            translation: None,
+        })
+        .collect()
 }
 
 /// The lines with English translations added, or `None` when the song is
@@ -256,6 +361,27 @@ mod tests {
             .map(|l| (l.at.as_millis(), l.text.as_str()))
             .collect();
         assert_eq!(got, vec![(1500, "a"), (2000, ""), (3000, "b"), (5250, "b")]);
+    }
+
+    #[test]
+    fn cleans_titles_and_artists() {
+        assert_eq!(
+            clean_title("Hold Me While You Wait (Recorded at Spotify Studios NYC)"),
+            "Hold Me While You Wait"
+        );
+        assert_eq!(clean_title("Let It Be - Remastered 2009"), "Let It Be");
+        assert_eq!(clean_title("Song [feat. X] (Live)"), "Song");
+        assert_eq!(main_artist("Lewis Capaldi"), "Lewis Capaldi");
+        assert_eq!(main_artist("A, B & C"), "A");
+        assert_eq!(main_artist("Calvin Harris feat. Rihanna"), "Calvin Harris");
+    }
+
+    #[test]
+    fn plain_lyrics_are_paced_over_the_song() {
+        let lines = pace("one\n\ntwo\nthree\n", Duration::from_secs(100));
+        let at: Vec<u64> = lines.iter().map(|l| l.at.as_secs()).collect();
+        assert_eq!(at, vec![8, 36, 64]);
+        assert!(pace("", Duration::from_secs(100)).is_empty());
     }
 
     #[test]

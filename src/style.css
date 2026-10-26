@@ -41,6 +41,12 @@ window.island {
 .collapsed {
   padding: 0 14px;
 }
+/* The song's turn in the collapsed notch. */
+.collapsed-song {
+  font-size: 13px;
+  font-weight: 500;
+  color: @text;
+}
 .clock {
   font-size: 15px;
   font-weight: 700;

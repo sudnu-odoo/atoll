@@ -42,7 +42,8 @@ const SEEK_HOLD: Duration = Duration::from_millis(1500);
 pub enum Lyrics {
     Loading,
     Missing,
-    Lines(Vec<Line>),
+    /// The lines, and whether their timing is real (else evenly paced).
+    Lines(Vec<Line>, bool),
 }
 
 pub struct MusicCard {
@@ -65,6 +66,8 @@ pub struct MusicCard {
     pin_button: Button,
     lyrics_panel: gtk::Box,
     lyrics_view: Rc<LyricsView>,
+    /// Shown under plain lyrics, whose timing is only estimated.
+    unsynced: Label,
     ring: Rc<Ring>,
     meter: Rc<Meter>,
     track: TrackCell,
@@ -111,7 +114,9 @@ impl MusicCard {
         let text_label = |class: &str| {
             Label::builder()
                 .css_classes([class])
-                .halign(Align::Start)
+                // Fill (text still left-aligned by xalign): its natural width
+                // is tiny on purpose, see below.
+                .halign(Align::Fill)
                 .xalign(0.0)
                 .ellipsize(gtk::pango::EllipsizeMode::End)
                 // A small natural width: a long title then ellipsizes in its
@@ -215,11 +220,20 @@ impl MusicCard {
 
         let lyrics_view = LyricsView::new();
         let lyrics_panel = gtk::Box::builder()
+            .orientation(Orientation::Vertical)
             .css_classes(["lyrics"])
             .hexpand(true)
             .visible(false)
             .build();
+        lyrics_view.root.set_vexpand(true);
         lyrics_panel.append(&lyrics_view.root);
+        let unsynced = Label::builder()
+            .label("NOT SYNCED · PACED OVER THE SONG")
+            .css_classes(["caps", "muted"])
+            .xalign(0.0)
+            .visible(false)
+            .build();
+        lyrics_panel.append(&unsynced);
 
         let root = gtk::Box::builder()
             .css_classes(["music-card"])
@@ -246,6 +260,7 @@ impl MusicCard {
             pin_button,
             lyrics_panel,
             lyrics_view,
+            unsynced,
             ring,
             meter,
             track,
@@ -371,7 +386,9 @@ impl MusicCard {
     }
 
     pub fn set_lyrics(&self, lyrics: Lyrics) {
-        let translated = matches!(&lyrics, Lyrics::Lines(lines)
+        self.unsynced
+            .set_visible(matches!(&lyrics, Lyrics::Lines(_, false)));
+        let translated = matches!(&lyrics, Lyrics::Lines(lines, _)
             if lines.iter().any(|l| l.translation.is_some()));
         self.lyrics_view.set_translated(translated);
         self.lyrics.replace(lyrics);
@@ -447,7 +464,7 @@ impl MusicCard {
         match &*self.lyrics.borrow() {
             Lyrics::Loading => self.lyrics_view.message("Looking for lyrics…"),
             Lyrics::Missing => self.lyrics_view.message("No synced lyrics for this song"),
-            Lyrics::Lines(lines) => {
+            Lyrics::Lines(lines, _) => {
                 // The line being sung: the last one that has started.
                 let index = lines.partition_point(|l| l.at <= pos) as isize - 1;
                 self.lyrics_view.show(index, |i| {

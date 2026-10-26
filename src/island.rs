@@ -170,6 +170,8 @@ pub struct Island {
     /// Pending "music stopped": players report no track for a moment
     /// between songs, which must not close or unpin the card.
     music_gone: RefCell<Option<glib::SourceId>>,
+    /// Collapsed width: wider while the song's name takes its turn.
+    collapsed_w: Cell<f64>,
     hovered: Cell<bool>,
     fullscreen: Cell<bool>,
     /// The card the current peek belongs to, opened if the peek is hovered.
@@ -229,6 +231,12 @@ impl Island {
             )
         });
         island.connect_pager();
+        let weak = Rc::downgrade(&island);
+        island.collapsed.connect_width(move |w| {
+            if let Some(i) = weak.upgrade() {
+                i.set_collapsed_width(w);
+            }
+        });
         island.accept_drops(shelf_commands_for_drop(&island));
         // Next question in a multi-question prompt: refit the notch.
         let weak = Rc::downgrade(&island);
@@ -397,6 +405,7 @@ impl Island {
             lyrics_mode: Cell::new(false),
             pinned: Cell::new(false),
             music_gone: RefCell::new(None),
+            collapsed_w: Cell::new(COLLAPSED.0),
             hovered: Cell::new(false),
             fullscreen: Cell::new(false),
             peek_page: Cell::new(None),
@@ -695,7 +704,7 @@ impl Island {
             return; // stale: the song changed while we were looking
         }
         self.music.set_lyrics(match update.lines {
-            Some(lines) => Lyrics::Lines(lines),
+            Some(lines) => Lyrics::Lines(lines, update.synced),
             None => Lyrics::Missing,
         });
     }
@@ -1010,9 +1019,32 @@ impl Island {
         self.show_pager(false);
         // Next hover starts from the first card again.
         self.page.set(0);
-        self.set_bounds(COLLAPSED);
+        let size = self.collapsed_size();
+        self.collapsed.set_width(size.0);
+        self.set_bounds(size);
         self.show_page("none", false);
-        self.animate_to(COLLAPSED);
+        self.animate_to(size);
+    }
+
+    fn collapsed_size(&self) -> (f64, f64) {
+        (self.collapsed_w.get(), COLLAPSED.1)
+    }
+
+    /// The collapsed content asks for a new width (the song's turn). While
+    /// collapsed the outline morphs there; the content keeps showing, laid
+    /// out at whichever of the two widths is narrower until the outline
+    /// settles, so nothing ever spills outside it.
+    fn set_collapsed_width(self: &Rc<Self>, w: f64) {
+        if self.collapsed_w.replace(w) == w {
+            return;
+        }
+        if self.state.get() != State::Collapsed {
+            return; // used on the next collapse
+        }
+        let current = self.size.get().0;
+        self.collapsed.set_width(w.min(current));
+        self.set_bounds((w.max(current), COLLAPSED.1));
+        self.animate_to(self.collapsed_size());
     }
 
     /// Content appears only once the notch has reached its size; growing the
@@ -1020,6 +1052,8 @@ impl Island {
     fn on_settled(self: &Rc<Self>) {
         match self.state.get() {
             State::Collapsed => {
+                self.collapsed.set_width(self.collapsed_w.get());
+                self.set_bounds(self.collapsed_size());
                 self.show_page("collapsed", true);
                 let queued = self.queued_peek.take();
                 if let Some((peek, at)) = queued {
