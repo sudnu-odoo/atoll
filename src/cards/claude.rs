@@ -17,10 +17,11 @@ use gtk::{glib, Align, Label, Orientation};
 use super::control_button;
 use crate::services::claude::{Choice, Question, Reply, Request, ANSWER_TIMEOUT};
 
-/// Text width inside the card (600px minus padding), in characters. Labels
-/// that wrap still *ask* for their full single-line width unless capped,
-/// which would stretch the card past the notch.
-const TEXT_CHARS: i32 = 58;
+// Wrapping labels below use `max_width_chars(1)` + `hexpand`: they ask for
+// almost no width and wrap to whatever the fixed-width card gives them.
+// Capping by a character count instead overflowed the notch whenever the
+// font's real glyphs were wider than Pango's estimate (long paths in the
+// monospace font).
 /// Long commands show this tall, then scroll inside their box.
 const COMMAND_MAX_H: i32 = 84;
 
@@ -73,6 +74,9 @@ impl ClaudeCard {
             .orientation(Orientation::Vertical)
             .css_classes(["claude-card"])
             .width_request(crate::island::EXPANDED_CLAUDE.0 as i32)
+            // Centered at its own width: filling would stretch it to the
+            // page container, which is as wide as the widest card.
+            .halign(Align::Center)
             .valign(Align::Start)
             .build();
         root.append(&top);
@@ -167,7 +171,8 @@ impl ClaudeCard {
             .xalign(0.0)
             .wrap(true)
             .wrap_mode(gtk::pango::WrapMode::WordChar)
-            .max_width_chars(TEXT_CHARS)
+            .max_width_chars(1)
+            .hexpand(true)
             .build();
         let scroller = gtk::ScrolledWindow::builder()
             .css_classes(["claude-command"])
@@ -233,7 +238,8 @@ impl ClaudeCard {
                 .xalign(0.0)
                 .wrap(true)
                 .wrap_mode(gtk::pango::WrapMode::WordChar)
-                .max_width_chars(TEXT_CHARS)
+                .max_width_chars(1)
+                .hexpand(true)
                 .build(),
         );
 
@@ -285,7 +291,8 @@ impl ClaudeCard {
                 .css_classes(["option-label"])
                 .xalign(0.0)
                 .wrap(true)
-                .max_width_chars(TEXT_CHARS)
+                .max_width_chars(1)
+                .hexpand(true)
                 .build(),
         );
         if !choice.description.is_empty() {
@@ -295,7 +302,8 @@ impl ClaudeCard {
                     .css_classes(["option-description"])
                     .xalign(0.0)
                     .wrap(true)
-                    .max_width_chars(TEXT_CHARS)
+                    .max_width_chars(1)
+                    .hexpand(true)
                     .build(),
             );
         }
