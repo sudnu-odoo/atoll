@@ -42,6 +42,8 @@ const SEEK_HOLD: Duration = Duration::from_millis(1500);
 pub enum Lyrics {
     Loading,
     Missing,
+    /// LRCLIB couldn't be reached; reopening the panel retries.
+    Unreachable,
     /// The lines, and whether their timing is real (else evenly paced).
     Lines(Vec<Line>, bool),
 }
@@ -463,7 +465,10 @@ impl MusicCard {
     fn show_lyrics(&self, pos: Duration) {
         match &*self.lyrics.borrow() {
             Lyrics::Loading => self.lyrics_view.message("Looking for lyrics…"),
-            Lyrics::Missing => self.lyrics_view.message("No synced lyrics for this song"),
+            Lyrics::Missing => self.lyrics_view.message("No lyrics found for this song"),
+            Lyrics::Unreachable => self
+                .lyrics_view
+                .message("Couldn't reach LRCLIB · reopen lyrics to retry"),
             Lyrics::Lines(lines, _) => {
                 // The line being sung: the last one that has started.
                 let index = lines.partition_point(|l| l.at <= pos) as isize - 1;

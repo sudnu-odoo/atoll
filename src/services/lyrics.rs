@@ -15,7 +15,8 @@ const API: &str = "https://lrclib.net/api/search";
 const TRANSLATE_API: &str = "https://clients5.google.com/translate_a/t";
 /// Lines per translate request, keeping the URL well under length limits.
 const TRANSLATE_CHUNK: usize = 25;
-const TIMEOUT: Duration = Duration::from_secs(8);
+/// LRCLIB is sometimes slow to answer; better late than "not found".
+const TIMEOUT: Duration = Duration::from_secs(15);
 /// Same song, different releases: lengths differ by a few seconds at most.
 const DURATION_SLACK: Duration = Duration::from_secs(3);
 const USER_AGENT: &str = concat!("Atoll/", env!("CARGO_PKG_VERSION"));
@@ -43,8 +44,11 @@ pub struct Line {
 #[derive(Clone)]
 pub struct Update {
     pub key: Key,
-    /// `None` when the song has no lyrics (or the lookup failed).
+    /// `None` when the song has no lyrics, or LRCLIB couldn't be reached.
     pub lines: Option<Vec<Line>>,
+    /// The lookup failed (offline, timeout): "none" isn't known, and the
+    /// next request tries again.
+    pub failed: bool,
     /// False for plain lyrics, whose timing is only an even estimate.
     pub synced: bool,
 }
@@ -74,16 +78,22 @@ pub fn spawn(updates: async_channel::Sender<Update>) -> async_channel::Sender<Re
             let mut cache: HashMap<Key, Option<Found>> = HashMap::new();
             let mut translated: HashMap<Key, Option<Vec<Line>>> = HashMap::new();
             while let Ok(req) = rx.recv_blocking() {
+                let mut failed = false;
                 let found = match cache.get(&req.key) {
                     Some(hit) => hit.clone(),
-                    None => {
-                        let found = lookup(&client, &req).unwrap_or_else(|e| {
-                            tracing::debug!("lyrics lookup failed: {e}");
+                    // Only answers are cached: a failure (e.g. right after
+                    // waking from sleep) must not mean "no lyrics" for good.
+                    None => match lookup(&client, &req) {
+                        Ok(found) => {
+                            cache.insert(req.key.clone(), found.clone());
+                            found
+                        }
+                        Err(e) => {
+                            tracing::warn!("lyrics lookup failed: {e}");
+                            failed = true;
                             None
-                        });
-                        cache.insert(req.key.clone(), found.clone());
-                        found
-                    }
+                        }
+                    },
                 };
                 let synced = found.as_ref().is_some_and(|f| f.synced);
                 let mut lines = found.map(|f| f.lines);
@@ -104,6 +114,7 @@ pub fn spawn(updates: async_channel::Sender<Update>) -> async_channel::Sender<Re
                     .send_blocking(Update {
                         key: req.key,
                         lines,
+                        failed,
                         synced,
                     })
                     .is_err()

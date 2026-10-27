@@ -705,6 +705,11 @@ impl Island {
         }
         self.music.set_lyrics(match update.lines {
             Some(lines) => Lyrics::Lines(lines, update.synced),
+            None if update.failed => {
+                // Not an answer: let the next open of the panel ask again.
+                self.lyrics_loaded.replace(None);
+                Lyrics::Unreachable
+            }
             None => Lyrics::Missing,
         });
     }
