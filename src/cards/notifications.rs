@@ -107,7 +107,8 @@ fn row(n: &Notification, now: i64, on_clear: Rc<dyn Fn(Option<u64>)>) -> gtk::Bu
         .valign(Align::Center)
         .build();
     let title = Label::builder()
-        .label(&n.title)
+        // One line: a title with line breaks would stack out of its row.
+        .label(n.title.split_whitespace().collect::<Vec<_>>().join(" "))
         .xalign(0.0)
         .hexpand(true)
         .ellipsize(gtk::pango::EllipsizeMode::End)

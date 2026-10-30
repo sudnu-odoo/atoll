@@ -172,8 +172,11 @@ impl PeekCard {
         let fraction = peek.percent.map_or(1.0, |p| (p / 100.0).clamp(0.0, 1.0));
         self.level.set(Some((fraction, color)));
         self.gauge.queue_draw();
-        self.title.set_label(&peek.title);
-        self.subtitle.set_label(&peek.subtitle);
+        // A peek is one line each: multi-line messages (code blocks, lists)
+        // would otherwise stack down past the notch. The full text stays in
+        // the notifications card.
+        self.title.set_label(&one_line(&peek.title));
+        self.subtitle.set_label(&one_line(&peek.subtitle));
 
         // Power peeks lead with the number; headphones get a badge instead.
         let audio = matches!(peek.kind, Kind::Bluetooth { audio: true });
@@ -200,5 +203,20 @@ fn draw_gauge(cr: &cairo::Context, w: f64, h: f64, level: Option<(f64, Rgb)>) {
         cr.set_source_rgb(r_, g, b);
         cr.arc(cx, cy, r, -FRAC_PI_2, -FRAC_PI_2 + TAU * fraction);
         let _ = cr.stroke();
+    }
+}
+
+fn one_line(text: &str) -> String {
+    text.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn peeks_are_one_line() {
+        assert_eq!(
+            super::one_line("odev migrate\n\nFor example:\n  odev  x"),
+            "odev migrate For example: odev x"
+        );
     }
 }
