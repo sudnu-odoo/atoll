@@ -121,7 +121,14 @@ pub fn build(app: &Application) {
         app: app.clone(),
         islands: RefCell::default(),
         deps: RefCell::new(island::Deps {
-            commands: mpris::spawn(music_tx),
+            // Previewing the clock card: as if nothing played.
+            commands: if crate::preview::active()
+                && std::env::var("ATOLL_SHOW").as_deref() == Ok("idle")
+            {
+                async_channel::unbounded().0
+            } else {
+                mpris::spawn(music_tx)
+            },
             lyrics_requests: lyrics::spawn(lyrics_tx),
             water_commands: water_tx,
             open_settings: settings_tx,

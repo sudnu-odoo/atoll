@@ -61,6 +61,8 @@ window.island {
   padding: 16px 52px 14px;
 }
 .big-clock {
+  /* Air between the shared top row (tabs) and the time. */
+  margin-top: 12px;
   font-family: "JetBrainsMono Nerd Font Mono";
   font-size: 26px;
   font-weight: 300;
@@ -209,7 +211,7 @@ button.control.pager.translate.on {
 button.control.tab {
   min-width: 30px;
   min-height: 26px;
-  padding: 0;
+  padding: 0 8px;
   border-radius: 999px;
   -gtk-icon-size: 14px;
   background-color: transparent;
@@ -221,7 +223,6 @@ button.control.tab:hover {
   color: @text;
 }
 button.control.tab.current {
-  padding: 0 12px;
   font-size: 12px;
   font-weight: 500;
   background-color: alpha(@pink, 0.18);

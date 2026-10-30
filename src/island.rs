@@ -181,6 +181,9 @@ pub struct Island {
     prev: gtk::Button,
     next: gtk::Button,
     dots: gtk::Box,
+    /// The tab buttons, and the cards they were built for.
+    #[allow(clippy::type_complexity)]
+    tabs: RefCell<(Vec<&'static str>, Vec<(gtk::Button, gtk::Revealer)>)>,
     /// Direction of the card switch in progress, for the slide.
     slide: Cell<Option<StackTransitionType>>,
     /// The island itself, for the tab buttons (rebuilt on every page).
@@ -436,6 +439,7 @@ impl Island {
             prev,
             next,
             dots,
+            tabs: RefCell::default(),
             slide: Cell::new(None),
             me: RefCell::new(std::rc::Weak::new()),
             gear,
@@ -1026,32 +1030,52 @@ impl Island {
     fn fill_tabs(&self) {
         let pages = self.pages();
         self.dots.set_margin_top(TOP_ROW_Y);
-        while let Some(child) = self.dots.first_child() {
-            self.dots.remove(&child);
-        }
-        let current = self.page.get().min(pages.len() - 1);
-        for (i, (name, _)) in pages.iter().enumerate() {
-            let (icon, label) = tab(name);
-            let tab = control_button(&["tab"], Some(icon));
-            if i == current {
-                // The current card names itself, so it's clear where you
-                // are; the others stay icons (named on hover) to keep the
-                // strip compact.
-                tab.add_css_class("current");
-                let content = gtk::Box::builder().spacing(6).build();
-                content.append(&gtk::Image::from_icon_name(icon));
-                content.append(&gtk::Label::new(Some(label)));
-                tab.set_child(Some(&content));
-            } else {
-                tab.set_tooltip_text(Some(label));
+        let names: Vec<&'static str> = pages.iter().map(|(n, _)| *n).collect();
+        // Built once per set of cards and kept, so a switch can animate
+        // from the old tab to the new one instead of redrawing the row.
+        if self.tabs.borrow().0 != names {
+            while let Some(child) = self.dots.first_child() {
+                self.dots.remove(&child);
             }
-            let me = self.me.borrow().clone();
-            tab.connect_clicked(move |_| {
-                if let Some(island) = me.upgrade() {
-                    island.go_to(i);
-                }
-            });
-            self.dots.append(&tab);
+            let mut built = Vec::new();
+            for (i, name) in names.iter().enumerate() {
+                let (icon, label) = tab(name);
+                let button = control_button(&["tab"], None);
+                let content = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+                content.append(&gtk::Image::from_icon_name(icon));
+                // The name slides open on the current tab and closed on the
+                // one being left, so the highlight appears to travel.
+                let name_label = gtk::Label::builder().label(label).margin_start(6).build();
+                let reveal = gtk::Revealer::builder()
+                    .transition_type(gtk::RevealerTransitionType::SlideRight)
+                    .transition_duration(SLIDE_MS)
+                    .child(&name_label)
+                    .build();
+                content.append(&reveal);
+                button.set_child(Some(&content));
+                button.set_tooltip_text(Some(label));
+                let me = self.me.borrow().clone();
+                button.connect_clicked(move |_| {
+                    if let Some(island) = me.upgrade() {
+                        island.go_to(i);
+                    }
+                });
+                self.dots.append(&button);
+                built.push((button, reveal));
+            }
+            self.tabs.replace((names.clone(), built));
+        }
+        let current = self.page.get().min(names.len().saturating_sub(1));
+        for (i, (button, reveal)) in self.tabs.borrow().1.iter().enumerate() {
+            let on = i == current;
+            if on {
+                button.add_css_class("current");
+            } else {
+                button.remove_css_class("current");
+            }
+            // The current tab already shows its name.
+            button.set_has_tooltip(!on);
+            reveal.set_reveal_child(on);
         }
     }
 
