@@ -2,3 +2,4 @@
 
 # Editor setup is per machine (paths like ~/.cargo/bin/cargo)
 /.vscode/
+/.claude/skills/ui-ux-pro-max/

@@ -31,7 +31,25 @@ use crate::water;
 pub const COLLAPSED: (f64, f64) = (250.0, 32.0);
 // Expanded cards keep a 52px margin each side (see style.css) for the page
 // arrows and the settings button, with room to spare around them.
-// Cards end ~10px above the bottom edge, leaving a strip for the page dots.
+// Cards end ~10px above the bottom edge; with more than one card the notch
+// grows by NAV_H below them for the card tabs.
+/// Strip under the cards for the tabs (one icon per card).
+const NAV_H: f64 = 26.0;
+/// Icon and name for a card's tab.
+fn tab(page: &str) -> (&'static str, &'static str) {
+    match page {
+        "music" => ("atoll-headphones-symbolic", "Music"),
+        "idle" => ("atoll-clock-symbolic", "Clock"),
+        "controls" => ("atoll-controls-symbolic", "Controls"),
+        "notifications" => ("atoll-bell-symbolic", "Notifications"),
+        "calendar" => ("atoll-event-symbolic", "Calendar"),
+        "water" => ("atoll-drop-symbolic", "Water"),
+        "todo" => ("atoll-check-circle-symbolic", "To-do"),
+        "shelf" => ("atoll-tray-symbolic", "Shelf"),
+        _ => ("atoll-circle-symbolic", ""),
+    }
+}
+
 /// How long "no track" must last before the music card goes away.
 const MUSIC_GONE_GRACE: std::time::Duration = std::time::Duration::from_secs(2);
 pub const EXPANDED_MUSIC: (f64, f64) = (568.0, 206.0);
@@ -148,6 +166,8 @@ pub struct Island {
     prev: gtk::Button,
     next: gtk::Button,
     dots: gtk::Box,
+    /// The island itself, for the tab buttons (rebuilt on every page).
+    me: RefCell<std::rc::Weak<Island>>,
     gear: gtk::Button,
     /// Under the › arrow, only beside open lyrics.
     translate_button: gtk::Button,
@@ -326,12 +346,12 @@ impl Island {
         // the card itself.
         let prev = control_button(&["pager"], Some("atoll-left-symbolic"));
         let next = control_button(&["pager"], Some("atoll-right-symbolic"));
+        // Card tabs: an icon per card, the current one lit; click to jump.
         let dots = gtk::Box::builder()
-            .css_classes(["dots"])
-            .spacing(5)
+            .css_classes(["tabs"])
+            .spacing(4)
             .halign(Align::Center)
             .valign(Align::Start)
-            .can_target(false)
             .build();
         for (w, h) in [(&prev, Align::Start), (&next, Align::End)] {
             w.set_halign(h);
@@ -388,6 +408,7 @@ impl Island {
             prev,
             next,
             dots,
+            me: RefCell::new(std::rc::Weak::new()),
             gear,
             translate: Cell::new(translate_button.has_css_class("on")),
             translate_button,
@@ -482,16 +503,28 @@ impl Island {
         if y >= f64::from(BAR_H) || self.state.get() != State::Expanded {
             return;
         }
-        let mut widget = self.root.pick(f64::from(x), y, gtk::PickFlags::DEFAULT);
-        while let Some(w) = widget {
-            if let Some(button) = w.downcast_ref::<gtk::Button>() {
+        // A small pill over the bar is easy to miss by a few pixels; the
+        // nearest button within reach takes the click, like a larger
+        // touch target would.
+        for dx in [0.0, -6.0, 6.0, -12.0, 12.0] {
+            if let Some(button) = self.button_at(f64::from(x) + dx, y) {
                 if button.is_sensitive() {
                     button.emit_clicked();
                 }
                 return;
             }
+        }
+    }
+
+    fn button_at(&self, x: f64, y: f64) -> Option<gtk::Button> {
+        let mut widget = self.root.pick(x, y, gtk::PickFlags::DEFAULT);
+        while let Some(w) = widget {
+            if let Ok(button) = w.clone().downcast::<gtk::Button>() {
+                return Some(button);
+            }
             widget = w.parent();
         }
+        None
     }
 
     fn on_hover(self: &Rc<Self>, inside: bool) {
@@ -819,10 +852,22 @@ impl Island {
         pages
     }
 
+    /// The current card and the notch size for it (its own size, plus the
+    /// tab strip when there's more than one card).
     fn expanded_page(&self) -> (&'static str, (f64, f64)) {
         let pages = self.pages();
         let i = self.page.get().min(pages.len() - 1);
-        pages[i]
+        let (name, (w, h)) = pages[i];
+        let nav = if pages.len() > 1 { NAV_H } else { 0.0 };
+        (name, (w, h + nav))
+    }
+
+    fn go_to(self: &Rc<Self>, i: usize) {
+        if self.state.get() != State::Expanded || self.page.get() == i {
+            return;
+        }
+        self.page.set(i);
+        self.expand();
     }
 
     /// Steps to the next/previous card, wrapping around.
@@ -837,6 +882,7 @@ impl Island {
     }
 
     fn connect_pager(self: &Rc<Self>) {
+        self.me.replace(Rc::downgrade(self));
         let weak = Rc::downgrade(self);
         self.prev.connect_clicked(move |_| {
             if let Some(i) = weak.upgrade() {
@@ -899,21 +945,26 @@ impl Island {
         self.next.set_margin_top(top);
         self.translate_button.set_margin_end(inset);
         self.translate_button.set_margin_top(top + 48);
-        self.dots.set_margin_top(h as i32 - 11);
+        self.dots.set_margin_top(h as i32 - NAV_H as i32 - 4);
 
         while let Some(child) = self.dots.first_child() {
             self.dots.remove(&child);
         }
         let current = self.page.get().min(pages.len() - 1);
-        for i in 0..pages.len() {
-            let dot = gtk::Box::builder()
-                .css_classes(if i == current {
-                    ["dot", "current"]
-                } else {
-                    ["dot", "other"]
-                })
-                .build();
-            self.dots.append(&dot);
+        for (i, (name, _)) in pages.iter().enumerate() {
+            let (icon, label) = tab(name);
+            let tab = control_button(&["tab"], Some(icon));
+            tab.set_tooltip_text(Some(label));
+            if i == current {
+                tab.add_css_class("current");
+            }
+            let me = self.me.borrow().clone();
+            tab.connect_clicked(move |_| {
+                if let Some(island) = me.upgrade() {
+                    island.go_to(i);
+                }
+            });
+            self.dots.append(&tab);
         }
     }
 

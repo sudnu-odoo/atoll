@@ -163,9 +163,14 @@ fn row(n: &Notification, now: i64, on_clear: Rc<dyn Fn(Option<u64>)>) -> gtk::Bu
                 .label(n.body.replace('\n', " "))
                 .xalign(0.0)
                 .wrap(true)
+                // Long links have no spaces to break at.
+                .wrap_mode(gtk::pango::WrapMode::WordChar)
                 .lines(3)
                 .ellipsize(gtk::pango::EllipsizeMode::End)
-                .max_width_chars(60)
+                // Wrap to the row's real width: a character-count cap could
+                // be wider than the row and spill past its background.
+                .max_width_chars(1)
+                .hexpand(true)
                 .css_classes(["notif-body"])
                 .build(),
         );

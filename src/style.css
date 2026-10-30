@@ -199,17 +199,24 @@ button.control.pager.translate.on {
   background-color: alpha(@pink, 0.22);
   color: @pink;
 }
-.dots .dot {
-  min-height: 4px;
-  border-radius: 2px;
+/* Card tabs under the cards: quiet icons, the current card lit in pink. */
+button.control.tab {
+  min-width: 30px;
+  min-height: 22px;
+  padding: 0;
+  border-radius: 999px;
+  -gtk-icon-size: 14px;
+  background-color: transparent;
+  color: alpha(@lavender, 0.55);
+  transition: background-color 150ms ease-out, color 150ms ease-out;
 }
-.dots .dot.current {
-  min-width: 14px;
-  background-color: @text;
+button.control.tab:hover {
+  background-color: alpha(@bg_raised, 0.7);
+  color: @text;
 }
-.dots .dot.other {
-  min-width: 4px;
-  background-color: alpha(@lavender, 0.4);
+button.control.tab.current {
+  background-color: alpha(@pink, 0.18);
+  color: @pink;
 }
 
 /* Peeks: short notifications (bluetooth, charger). */
