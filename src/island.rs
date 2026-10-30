@@ -66,7 +66,7 @@ const MUSIC_GONE_GRACE: std::time::Duration = std::time::Duration::from_secs(2);
 pub const EXPANDED_MUSIC: (f64, f64) = (568.0, 222.0);
 pub const EXPANDED_LYRICS: (f64, f64) = (868.0, 222.0);
 pub const EXPANDED_WATER: (f64, f64) = (568.0, 206.0);
-pub const EXPANDED_IDLE: (f64, f64) = (568.0, 150.0);
+pub const EXPANDED_IDLE: (f64, f64) = (568.0, 162.0);
 pub const EXPANDED_TODO: (f64, f64) = (568.0, 206.0);
 /// Wider than the rest: month grid and day agenda side by side.
 pub const EXPANDED_CALENDAR: (f64, f64) = (680.0, 252.0);
