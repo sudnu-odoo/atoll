@@ -128,6 +128,7 @@ fn row(n: &Notification, now: i64, on_clear: Rc<dyn Fn(Option<u64>)>) -> gtk::Bu
         .ellipsize(gtk::pango::EllipsizeMode::End)
         .css_classes(["notif-title"])
         .build();
+    super::full_text_on_hover(&title);
     let text = gtk::Box::builder()
         .orientation(Orientation::Vertical)
         .spacing(2)
@@ -158,22 +159,22 @@ fn row(n: &Notification, now: i64, on_clear: Rc<dyn Fn(Option<u64>)>) -> gtk::Bu
         }
     }
     if !n.body.is_empty() {
-        text.append(
-            &Label::builder()
-                .label(n.body.replace('\n', " "))
-                .xalign(0.0)
-                .wrap(true)
-                // Long links have no spaces to break at.
-                .wrap_mode(gtk::pango::WrapMode::WordChar)
-                .lines(3)
-                .ellipsize(gtk::pango::EllipsizeMode::End)
-                // Wrap to the row's real width: a character-count cap could
-                // be wider than the row and spill past its background.
-                .max_width_chars(1)
-                .hexpand(true)
-                .css_classes(["notif-body"])
-                .build(),
-        );
+        let body = Label::builder()
+            .label(n.body.replace('\n', " "))
+            .xalign(0.0)
+            .wrap(true)
+            // Long links have no spaces to break at.
+            .wrap_mode(gtk::pango::WrapMode::WordChar)
+            .lines(3)
+            .ellipsize(gtk::pango::EllipsizeMode::End)
+            // Wrap to the row's real width: a character-count cap could
+            // be wider than the row and spill past its background.
+            .max_width_chars(1)
+            .hexpand(true)
+            .css_classes(["notif-body"])
+            .build();
+        super::full_text_on_hover(&body);
+        text.append(&body);
     }
     text.set_hexpand(true);
     let content = gtk::Box::builder().spacing(12).build();

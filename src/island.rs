@@ -34,7 +34,7 @@ pub const COLLAPSED: (f64, f64) = (250.0, 32.0);
 // Cards end ~10px above the bottom edge; with more than one card the notch
 // grows by NAV_H below them for the card tabs.
 /// Strip under the cards for the tabs (one icon per card).
-const NAV_H: f64 = 26.0;
+const NAV_H: f64 = 30.0;
 /// Icon and name for a card's tab.
 fn tab(page: &str) -> (&'static str, &'static str) {
     match page {
@@ -945,7 +945,7 @@ impl Island {
         self.next.set_margin_top(top);
         self.translate_button.set_margin_end(inset);
         self.translate_button.set_margin_top(top + 48);
-        self.dots.set_margin_top(h as i32 - NAV_H as i32 - 4);
+        self.dots.set_margin_top(h as i32 - NAV_H as i32);
 
         while let Some(child) = self.dots.first_child() {
             self.dots.remove(&child);
@@ -954,9 +954,17 @@ impl Island {
         for (i, (name, _)) in pages.iter().enumerate() {
             let (icon, label) = tab(name);
             let tab = control_button(&["tab"], Some(icon));
-            tab.set_tooltip_text(Some(label));
             if i == current {
+                // The current card names itself, so it's clear where you
+                // are; the others stay icons (named on hover) to keep the
+                // strip compact.
                 tab.add_css_class("current");
+                let content = gtk::Box::builder().spacing(6).build();
+                content.append(&gtk::Image::from_icon_name(icon));
+                content.append(&gtk::Label::new(Some(label)));
+                tab.set_child(Some(&content));
+            } else {
+                tab.set_tooltip_text(Some(label));
             }
             let me = self.me.borrow().clone();
             tab.connect_clicked(move |_| {

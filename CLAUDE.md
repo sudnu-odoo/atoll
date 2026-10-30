@@ -66,7 +66,7 @@ Palette (Dracula, tuned to the user's eclipse wallpaper):
 | `lavender` | `#C9B8FF` | Secondary text, labels |
 | `pink` | `#FF8FB1` | Accents, progress, active states |
 | `purple` | `#BD93F9` | Highlights |
-| `muted` | `#6272A4` | Tertiary text |
+| `muted` | `#A6B0D8` | Tertiary text (lightened from Dracula's `#6272A4` to reach 4.5:1 contrast) |
 
 Typography: `Ubuntu` (Light/Regular/Medium) for UI text, `JetBrainsMono Nerd Font` for numbers/timers, `Symbols Nerd Font` for icons. Labels use uppercase with letter-spacing, like the user's desktop widgets.
 

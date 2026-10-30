@@ -129,6 +129,8 @@ impl MusicCard {
         };
         let title = text_label("title");
         let subtitle = text_label("subtitle");
+        super::full_text_on_hover(&title);
+        super::full_text_on_hover(&subtitle);
         let text = gtk::Box::builder()
             .orientation(Orientation::Vertical)
             .valign(Align::Center)

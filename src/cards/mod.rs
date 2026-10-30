@@ -82,6 +82,20 @@ pub fn live_clock(label: &gtk::Label, format: &'static str) {
     });
 }
 
+/// Shows the label's full text on hover, but only while it's cut short
+/// with "…"; text that fits needs no tooltip.
+pub fn full_text_on_hover(label: &gtk::Label) {
+    use gtk::prelude::*;
+    label.set_has_tooltip(true);
+    label.connect_query_tooltip(|label, _, _, _, tooltip| {
+        if !label.layout().is_ellipsized() {
+            return false;
+        }
+        tooltip.set_text(Some(&label.text()));
+        true
+    });
+}
+
 /// A notch button: never takes keyboard focus (clicking the island must not
 /// steal focus from the user's window) and shows the hand cursor.
 pub fn control_button(classes: &[&str], icon: Option<&str>) -> gtk::Button {

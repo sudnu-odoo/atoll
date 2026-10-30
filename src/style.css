@@ -5,7 +5,9 @@
 @define-color lavender #C9B8FF;
 @define-color pink #FF8FB1;
 @define-color purple #BD93F9;
-@define-color muted #6272A4;
+/* Lighter than Dracula's #6272A4: muted text must still reach 4.5:1 on
+   the pill and on highlighted rows. */
+@define-color muted #A6B0D8;
 
 /* Island windows only (not the settings window): clear the theme's
    background; the notch shape is drawn in island.rs. */
@@ -24,7 +26,7 @@ window.island {
 
 /* Small caps-style labels, like the desktop's widgets. */
 .caps {
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 500;
   letter-spacing: 2px;
 }
@@ -123,7 +125,7 @@ window.island {
 .lyric {
   font-size: 16px;
   font-weight: 500;
-  color: alpha(@lavender, 0.38);
+  color: alpha(@lavender, 0.65);
 }
 .lyric-current {
   font-size: 25px;
@@ -202,7 +204,7 @@ button.control.pager.translate.on {
 /* Card tabs under the cards: quiet icons, the current card lit in pink. */
 button.control.tab {
   min-width: 30px;
-  min-height: 22px;
+  min-height: 26px;
   padding: 0;
   border-radius: 999px;
   -gtk-icon-size: 14px;
@@ -215,8 +217,15 @@ button.control.tab:hover {
   color: @text;
 }
 button.control.tab.current {
+  padding: 0 12px;
+  font-size: 12px;
+  font-weight: 500;
   background-color: alpha(@pink, 0.18);
   color: @pink;
+}
+button.control.tab.current label,
+button.control.tab.current image {
+  color: inherit;
 }
 
 /* Peeks: short notifications (bluetooth, charger). */
@@ -364,7 +373,7 @@ window.settings .settings-subtitle {
   color: @muted;
 }
 window.settings .settings-hint {
-  font-size: 11px;
+  font-size: 12px;
   color: @muted;
   margin: 0 4px;
 }
@@ -516,7 +525,7 @@ button.todo-row.done .todo-text {
 }
 .todo-time {
   font-family: "JetBrainsMono Nerd Font Mono";
-  font-size: 11px;
+  font-size: 12px;
   color: @lavender;
 }
 button.todo-row.done .todo-time {
@@ -647,7 +656,7 @@ button.control.cal-nav {
   color: @lavender;
 }
 .cal-weekday {
-  font-size: 10px;
+  font-size: 11px;
   color: @muted;
   min-height: 14px;
 }
@@ -660,7 +669,7 @@ button.cal-day {
   border-radius: 999px;
   background: none;
   box-shadow: none;
-  font-size: 11px;
+  font-size: 12px;
   color: @text;
 }
 button.cal-day:hover {
@@ -720,7 +729,7 @@ button.control.round.join {
   margin-top: 10px;
 }
 button.control.shelf-clear {
-  min-height: 22px;
+  min-height: 26px;
   padding: 0 10px;
   margin: 0;
   border-radius: 999px;
@@ -744,7 +753,7 @@ button.control.shelf-clear:hover {
   font-weight: 700;
 }
 .shelf-size {
-  font-size: 11px;
+  font-size: 12px;
   color: @muted;
 }
 button.control.shelf-remove {
@@ -832,7 +841,7 @@ button.control.qs-more.plain {
   font-weight: 700;
 }
 .qs-subtitle {
-  font-size: 11px;
+  font-size: 12px;
   color: @lavender;
 }
 .qs-tile.on .qs-subtitle {

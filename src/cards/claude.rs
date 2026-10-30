@@ -65,6 +65,7 @@ impl ClaudeCard {
             .xalign(0.0)
             .hexpand(true)
             .build();
+        super::full_text_on_hover(&project);
         title.append(&project);
         title.set_hexpand(true);
         let countdown = Label::builder().css_classes(["time"]).build();

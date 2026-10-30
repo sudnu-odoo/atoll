@@ -48,6 +48,7 @@ impl Collapsed {
             .ellipsize(gtk::pango::EllipsizeMode::End)
             .max_width_chars(52)
             .build();
+        super::full_text_on_hover(&song);
         let track = TrackCell::default();
         let ring = Ring::new(track.clone(), 16);
         let meter = Meter::new();
