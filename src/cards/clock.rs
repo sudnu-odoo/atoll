@@ -236,6 +236,8 @@ impl Idle {
             .height_request(crate::island::EXPANDED_IDLE.1 as i32)
             .valign(Align::Start)
             .build();
+        // Empty slot for the island's shared row (tabs, settings).
+        root.append(&gtk::Box::builder().css_classes(["card-top"]).build());
         root.append(&time);
         root.append(&date);
         root.append(&hint);

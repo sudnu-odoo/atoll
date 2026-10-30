@@ -58,7 +58,7 @@ window.island {
 
 /* Expanded: nothing playing */
 .idle-card {
-  padding: 30px 52px 14px;
+  padding: 16px 52px 14px;
 }
 .big-clock {
   font-family: "JetBrainsMono Nerd Font Mono";
@@ -72,7 +72,11 @@ window.island {
 /* 52px side padding: the page arrows and settings button sit in this
    margin (8px in, 26px wide), leaving ~18px of air before the content. */
 .player {
-  padding: 16px 52px 12px;
+  padding: 4px 52px 12px;
+}
+/* The shared top row's slot (tabs, clock), above player and lyrics. */
+.music-card > .card-top {
+  margin-top: 16px;
 }
 /* In lyrics mode the lyrics panel is the right edge, so it takes the margin. */
 .player.with-lyrics {
@@ -117,7 +121,7 @@ window.island {
 /* Lyrics panel, right of the player in lyrics mode. */
 .lyrics {
   padding: 0 52px 0 26px;
-  margin: 18px 0 16px;
+  margin: 10px 0 16px;
   border-left: 1px solid alpha(@bg_raised, 0.9);
 }
 /* Strong contrast: the line being sung is big and bright, the others are

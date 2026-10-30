@@ -88,3 +88,14 @@ RUST_LOG=atoll=debug cargo run
 cargo test
 cargo clippy --all-targets -- -D warnings
 ```
+
+To check a card's layout without touching the Atoll you're running, render
+it to a PNG off-screen:
+
+```bash
+ATOLL_SHOT=/tmp/music.png ATOLL_SHOW=music cargo run
+```
+
+`ATOLL_SHOW` accepts `music`, `lyrics`, `idle`, `controls`, `notifications`,
+`calendar`, `water`, `todo` and `shelf`. A run occasionally saves nothing;
+run it again.

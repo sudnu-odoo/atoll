@@ -103,9 +103,14 @@ pub fn build(app: &Application) {
     } else {
         banners::restore();
     }
-    autostart::apply(config.autostart);
-    crate::shell::refresh_saved();
-    claude::spawn(claude_tx);
+    if !crate::preview::active() {
+        autostart::apply(config.autostart);
+        crate::shell::refresh_saved();
+    }
+    // The socket belongs to the user's running Atoll, never to a preview.
+    if !crate::preview::active() {
+        claude::spawn(claude_tx);
+    }
     // Services always run (they idle on D-Bus signals at no cost); whether
     // their output is shown is decided per event, so toggling a feature in
     // settings takes effect immediately.
@@ -616,6 +621,12 @@ impl Hub {
             .filter(|_| !paused)
             .filter_map(|i| list.item(i).and_downcast::<gdk::Monitor>())
             .filter_map(|m| m.connector().map(|c| c.to_string()))
+            // A preview renders one island.
+            .take(if crate::preview::active() {
+                1
+            } else {
+                usize::MAX
+            })
             .collect();
 
         let gone: Vec<String> = self
@@ -676,9 +687,33 @@ impl Hub {
             glib::timeout_add_local_once(Duration::from_millis(600), move || {
                 i.show_for_debugging(&page);
             });
+            if let Some(path) = crate::preview::shot_path() {
+                let i = island.clone();
+                // Long enough for the expand animation and the services'
+                // first answers (track, cover, lyrics).
+                let wait = std::env::var("ATOLL_SHOT_DELAY_MS")
+                    .ok()
+                    .and_then(|v| v.parse().ok())
+                    .unwrap_or(3500);
+                let tries = std::cell::Cell::new(0);
+                glib::timeout_add_local(Duration::from_millis(wait), move || {
+                    tries.set(tries.get() + 1);
+                    if !i.save_png(&path) && tries.get() < 20 {
+                        return glib::ControlFlow::Continue;
+                    }
+                    if let Some(app) = gio::Application::default() {
+                        app.quit();
+                    }
+                    glib::ControlFlow::Break
+                });
+            }
         }
         // Ends by itself when the window's X thread exits and drops the sender.
-        forward(hover_rx, move |event| i.on_pointer(event));
+        // A preview sits off screen: the real pointer and fullscreen state
+        // say nothing about it.
+        if !crate::preview::active() {
+            forward(hover_rx, move |event| i.on_pointer(event));
+        }
         Some((island, window))
     }
 }

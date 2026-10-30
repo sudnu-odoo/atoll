@@ -343,7 +343,11 @@ fn is_fullscreen_on(
 }
 
 fn target_of((mx, my, mw, _): (i32, i32, i32, i32), connector: &str) -> (i32, i32) {
-    let x = mx + (mw - island::WIN_W) / 2;
+    let x = if crate::preview::active() {
+        crate::preview::OFFSCREEN_X
+    } else {
+        mx + (mw - island::WIN_W) / 2
+    };
     tracing::info!("placing island for {connector} at {x},{my} (monitor width {mw})");
     (x, my)
 }

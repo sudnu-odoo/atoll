@@ -7,6 +7,7 @@ mod config;
 mod hook;
 mod island;
 mod palette;
+mod preview;
 mod services;
 mod settings;
 mod shelf;
@@ -64,9 +65,14 @@ fn main() -> glib::ExitCode {
 
     // Launching `atoll` again (e.g. `atoll --settings`) forwards the command
     // line to the running instance instead of starting a second island.
+    let mut flags = gio::ApplicationFlags::HANDLES_COMMAND_LINE;
+    if preview::active() {
+        // Must not forward to (or replace) the user's running Atoll.
+        flags |= gio::ApplicationFlags::NON_UNIQUE;
+    }
     let app = Application::builder()
         .application_id(APP_ID)
-        .flags(gio::ApplicationFlags::HANDLES_COMMAND_LINE)
+        .flags(flags)
         .build();
     app.connect_activate(app::build);
     app.connect_command_line(|app, cmdline| {

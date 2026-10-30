@@ -72,11 +72,7 @@ impl TodoCard {
         ring.set_draw_func(move |_, cr, w, h| draw_ring(cr, f64::from(w), f64::from(h), f.get()));
         // The island's shared top row (tabs, clock, settings) names the card
         // and shows the time; this row keeps only the card's own actions.
-        // The ring (share of tasks done) is the card's own information.
-        let top = gtk::CenterBox::builder()
-            .css_classes(["card-top"])
-            .start_widget(&ring)
-            .build();
+        let top = gtk::CenterBox::builder().css_classes(["card-top"]).build();
 
         // Left: big progress, label, then the two actions.
         // Count and caption centered over the two action buttons.

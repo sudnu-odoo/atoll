@@ -51,7 +51,6 @@ pub enum Lyrics {
 pub struct MusicCard {
     pub root: gtk::Box,
     player: gtk::Box,
-    top: gtk::CenterBox,
     cover: Cover,
     title: Label,
     subtitle: Label,
@@ -127,9 +126,8 @@ impl MusicCard {
 
         // The cover spans the top row and the title, like a header block.
         let header = gtk::Grid::builder().column_spacing(18).build();
-        header.attach(&cover.area, 0, 0, 1, 2);
-        header.attach(&top, 1, 0, 1, 1);
-        header.attach(&text, 1, 1, 1, 1);
+        header.attach(&cover.area, 0, 0, 1, 1);
+        header.attach(&text, 1, 0, 1, 1);
 
         let elapsed = Label::builder().css_classes(["time"]).xalign(0.0).build();
         let remaining = Label::builder().css_classes(["time"]).xalign(1.0).build();
@@ -224,17 +222,22 @@ impl MusicCard {
             .build();
         lyrics_panel.append(&unsynced);
 
+        // The top row spans the whole card, above the player and the lyrics:
+        // it's the slot the island's shared row (tabs, clock) sits in.
+        let columns = gtk::Box::new(Orientation::Horizontal, 0);
+        columns.append(&player);
+        columns.append(&lyrics_panel);
         let root = gtk::Box::builder()
+            .orientation(Orientation::Vertical)
             .css_classes(["music-card"])
             .valign(Align::Start)
             .build();
-        root.append(&player);
-        root.append(&lyrics_panel);
+        root.append(&top);
+        root.append(&columns);
 
         let card = Rc::new(Self {
             root,
             player,
-            top,
             cover,
             title,
             subtitle,
@@ -342,11 +345,10 @@ impl MusicCard {
         self.cover.set(art);
     }
 
-    /// Normal: date row on top, compact. Lyrics: player on the left (no date
-    /// row), lyrics on the right; the island makes the notch wider.
+    /// Normal: the player alone. Lyrics: player on the left, lyrics on the
+    /// right; the island makes the notch wider.
     pub fn set_lyrics_mode(self: &Rc<Self>, on: bool) {
         self.lyrics_mode.set(on);
-        self.top.set_visible(!on);
         self.lyrics_panel.set_visible(on);
         self.player.set_hexpand(!on);
         self.player

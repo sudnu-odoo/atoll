@@ -25,6 +25,9 @@ fn marker() -> Option<std::path::PathBuf> {
 
 /// Hides GNOME's banners, if they're shown, remembering that we did.
 pub fn hide() {
+    if crate::preview::active() {
+        return;
+    }
     let (Some(s), Some(m)) = (settings(), marker()) else {
         return;
     };
@@ -46,6 +49,10 @@ pub fn hide() {
 
 /// Gives the banners back, but only if Atoll was the one that hid them.
 pub fn restore() {
+    // A preview must leave the user's running Atoll's choice alone.
+    if crate::preview::active() {
+        return;
+    }
     let (Some(s), Some(m)) = (settings(), marker()) else {
         return;
     };

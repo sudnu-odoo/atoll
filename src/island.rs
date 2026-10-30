@@ -53,12 +53,13 @@ fn tab(page: &str) -> (&'static str, &'static str) {
 
 /// How long "no track" must last before the music card goes away.
 const MUSIC_GONE_GRACE: std::time::Duration = std::time::Duration::from_secs(2);
-pub const EXPANDED_MUSIC: (f64, f64) = (568.0, 206.0);
-pub const EXPANDED_LYRICS: (f64, f64) = (868.0, 206.0);
+pub const EXPANDED_MUSIC: (f64, f64) = (568.0, 222.0);
+pub const EXPANDED_LYRICS: (f64, f64) = (868.0, 222.0);
 pub const EXPANDED_WATER: (f64, f64) = (568.0, 206.0);
-pub const EXPANDED_IDLE: (f64, f64) = (364.0, 128.0);
+pub const EXPANDED_IDLE: (f64, f64) = (568.0, 150.0);
 pub const EXPANDED_TODO: (f64, f64) = (568.0, 206.0);
-pub const EXPANDED_CALENDAR: (f64, f64) = (568.0, 252.0);
+/// Wider than the rest: month grid and day agenda side by side.
+pub const EXPANDED_CALENDAR: (f64, f64) = (680.0, 252.0);
 pub const EXPANDED_SHELF: (f64, f64) = (568.0, 206.0);
 pub const EXPANDED_CONTROLS: (f64, f64) = (568.0, 206.0);
 pub const EXPANDED_NOTIFICATIONS: (f64, f64) = (568.0, 260.0);
@@ -458,6 +459,37 @@ impl Island {
         island
     }
 
+    /// Renders the island as it looks now to a PNG (see `preview`).
+    /// Returns false when there was nothing drawn yet (try again later).
+    pub fn save_png(&self, path: &std::path::Path) -> bool {
+        let root = self.root.upcast_ref::<gtk::Widget>();
+        // Off screen, GTK's layout pass may not have run yet (it waits for
+        // frames the compositor never sends): lay out now.
+        let (w, h) = (WIN_W, WIN_H);
+        root.measure(gtk::Orientation::Horizontal, -1);
+        root.allocate(w, h, -1, None);
+        let snapshot = gtk::Snapshot::new();
+        gtk::WidgetPaintable::new(Some(root)).snapshot(&snapshot, f64::from(w), f64::from(h));
+        let Some(node) = snapshot.to_node() else {
+            tracing::warn!(
+                "preview: nothing to render (mapped {}, visible {}, {w}x{h}, page {:?})",
+                root.is_mapped(),
+                root.is_visible(),
+                self.stack.visible_child_name()
+            );
+            return false;
+        };
+        let Some(renderer) = root.native().and_then(|n| n.renderer()) else {
+            return false;
+        };
+        let texture = renderer.render_texture(node, None);
+        match texture.save_to_png(path) {
+            Ok(()) => tracing::info!("preview saved to {}", path.display()),
+            Err(e) => tracing::warn!("preview: cannot save {}: {e}", path.display()),
+        }
+        true
+    }
+
     /// Developer aid (`ATOLL_SHOW=<card>`): opens a card at startup and
     /// keeps it open, so layouts can be checked with a screenshot instead
     /// of hovering.
@@ -466,6 +498,12 @@ impl Island {
             "todo-add" | "todo-edit" => {
                 self.todo.show_form_for_debugging(page == "todo-edit");
                 "todo"
+            }
+            "lyrics" => {
+                if !self.lyrics_mode.get() {
+                    self.toggle_lyrics();
+                }
+                "music"
             }
             "controls-wifi" => {
                 let c = self.controls.clone();
@@ -927,7 +965,9 @@ impl Island {
         // The gear sits in the top-right corner of every expanded card. That
         // is over the GNOME bar, so its clicks arrive via `on_click`.
         self.gear.set_visible(visible);
-        self.clock.set_visible(visible);
+        // The clock card shows the time big already.
+        self.clock
+            .set_visible(visible && self.expanded_page().0 != "idle");
         if visible {
             let w = self.expanded_page().1 .0;
             // Same column as the › arrow below it.
@@ -1174,7 +1214,13 @@ impl Island {
     }
 
     fn animate_to(self: &Rc<Self>, to: (f64, f64)) {
-        let Some(clock) = self.notch.frame_clock() else {
+        // Off screen (preview) the compositor sends no frames, so an
+        // animation would never finish: jump instead.
+        let clock = self
+            .notch
+            .frame_clock()
+            .filter(|_| !crate::preview::active());
+        let Some(clock) = clock else {
             // Not on screen yet: jump.
             self.size.set(to);
             self.notch.queue_draw();
