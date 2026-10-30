@@ -36,6 +36,15 @@ pub const COLLAPSED: (f64, f64) = (250.0, 32.0);
 // top of the screen, so things there never move when cards change size.
 /// Top of the shared row, matching the cards' 16px top padding.
 const TOP_ROW_Y: i32 = 16;
+/// Height of that row (tabs, gear, clock all share it).
+const TOP_ROW_H: i32 = 26;
+/// The tab strip starts this far left of the notch's center, on every card.
+/// Centering it instead would shift every tab whenever the named tab's
+/// label changes length.
+const TABS_LEFT_OF_CENTER: i32 = 170;
+/// x, y, width, height in island coordinates.
+type Rect = (f64, f64, f64, f64);
+
 /// Forward (to a card further right) slides the content left, back slides
 /// it right, so the motion matches where the card sits in the tabs.
 fn slide_toward(forward: bool) -> StackTransitionType {
@@ -181,6 +190,12 @@ pub struct Island {
     prev: gtk::Button,
     next: gtk::Button,
     dots: gtk::Box,
+    /// The current tab's pink pill, drawn under the tabs so it can glide
+    /// from one tab to the next.
+    indicator: DrawingArea,
+    /// Where the pill is drawn now (x, y, w, h in island coordinates).
+    pill: Rc<Cell<Option<Rect>>>,
+    pill_tick: RefCell<Option<gtk::TickCallbackId>>,
     /// The tab buttons, and the cards they were built for.
     #[allow(clippy::type_complexity)]
     tabs: RefCell<(Vec<&'static str>, Vec<(gtk::Button, gtk::Revealer)>)>,
@@ -372,7 +387,8 @@ impl Island {
         let dots = gtk::Box::builder()
             .css_classes(["tabs"])
             .spacing(4)
-            .halign(Align::Center)
+            .halign(Align::Start)
+            .margin_start(WIN_W / 2 - TABS_LEFT_OF_CENTER)
             .valign(Align::Start)
             .build();
         for (w, h) in [(&prev, Align::Start), (&next, Align::End)] {
@@ -394,12 +410,43 @@ impl Island {
         root.add_overlay(&stack);
         root.add_overlay(&prev);
         root.add_overlay(&next);
+        // Added before the tabs, so it's drawn beneath them.
+        let pill: Rc<Cell<Option<Rect>>> = Rc::default();
+        let indicator = DrawingArea::builder().can_target(false).build();
+        let p = pill.clone();
+        indicator.set_draw_func(move |_, cr, _, _| {
+            let Some((x, y, w, h)) = p.get() else { return };
+            let r = h / 2.0;
+            cr.new_sub_path();
+            cr.arc(
+                x + w - r,
+                y + r,
+                r,
+                -std::f64::consts::FRAC_PI_2,
+                std::f64::consts::FRAC_PI_2,
+            );
+            cr.arc(
+                x + r,
+                y + r,
+                r,
+                std::f64::consts::FRAC_PI_2,
+                3.0 * std::f64::consts::FRAC_PI_2,
+            );
+            cr.close_path();
+            let (pr, pg, pb) = crate::palette::pink();
+            cr.set_source_rgba(pr, pg, pb, 0.2);
+            let _ = cr.fill();
+        });
+        root.add_overlay(&indicator);
         root.add_overlay(&dots);
         root.add_overlay(&gear);
         let clock = gtk::Label::builder()
             .css_classes(["clock"])
             .halign(Align::End)
             .valign(Align::Start)
+            // Same height as the tabs and gear, text centered in it.
+            .height_request(TOP_ROW_H)
+            .yalign(0.5)
             .can_target(false)
             .visible(false)
             .build();
@@ -439,6 +486,9 @@ impl Island {
             prev,
             next,
             dots,
+            indicator,
+            pill,
+            pill_tick: RefCell::new(None),
             tabs: RefCell::default(),
             slide: Cell::new(None),
             me: RefCell::new(std::rc::Weak::new()),
@@ -999,7 +1049,7 @@ impl Island {
             // Clock beside the gear, its text centered on the same row.
             self.clock
                 .set_margin_end((WIN_W - w as i32) / 2 + 8 + 26 + 12);
-            self.clock.set_margin_top(TOP_ROW_Y + 4);
+            self.clock.set_margin_top(TOP_ROW_Y);
         }
         let lyrics_open = visible && self.expanded_page() == ("music", EXPANDED_LYRICS);
         self.translate_button.set_visible(lyrics_open);
@@ -1008,6 +1058,7 @@ impl Island {
         self.prev.set_visible(show);
         self.next.set_visible(show);
         self.dots.set_visible(show);
+        self.indicator.set_visible(show);
         if !show {
             return;
         }
@@ -1077,16 +1128,84 @@ impl Island {
             button.set_has_tooltip(!on);
             reveal.set_reveal_child(on);
         }
+        self.glide_pill();
+    }
+
+    /// Moves the pink pill to the current tab: from where it is, it glides
+    /// (position and width together, as the tab's name opens); the first
+    /// time it simply appears there.
+    fn glide_pill(&self) {
+        self.indicator.set_visible(true);
+        let Some(me) = self.me.borrow().upgrade() else {
+            return;
+        };
+        if let Some(id) = self.pill_tick.take() {
+            id.remove();
+        }
+        let from = self.pill.get();
+        let start = Cell::new(None::<i64>);
+        let weak = Rc::downgrade(&me);
+        let id = self.indicator.add_tick_callback(move |_, clock| {
+            let Some(island) = weak.upgrade() else {
+                return glib::ControlFlow::Break;
+            };
+            let now = clock.frame_time();
+            let t0 = *start.get().get_or_insert(now);
+            start.set(Some(t0));
+            let t = ((now - t0) as f64 / (f64::from(SLIDE_MS) * 1000.0)).clamp(0.0, 1.0);
+            // The target is read every frame: the new tab widens while its
+            // name slides open.
+            let Some(to) = island.current_tab_rect() else {
+                return glib::ControlFlow::Continue;
+            };
+            let e = ease_out(t);
+            let lerp = |a: f64, b: f64| a + (b - a) * e;
+            let rect = match from {
+                Some(f) => (
+                    lerp(f.0, to.0),
+                    lerp(f.1, to.1),
+                    lerp(f.2, to.2),
+                    lerp(f.3, to.3),
+                ),
+                None => to,
+            };
+            island.pill.set(Some(rect));
+            island.indicator.queue_draw();
+            if t >= 1.0 {
+                island.pill_tick.take();
+                return glib::ControlFlow::Break;
+            }
+            glib::ControlFlow::Continue
+        });
+        self.pill_tick.replace(Some(id));
+    }
+
+    fn current_tab_rect(&self) -> Option<Rect> {
+        let tabs = self.tabs.borrow();
+        let button = tabs
+            .1
+            .get(self.page.get().min(tabs.1.len().checked_sub(1)?))?;
+        let b = button.0.compute_bounds(&self.root)?;
+        Some((
+            f64::from(b.x()),
+            f64::from(b.y()),
+            f64::from(b.width()),
+            f64::from(b.height()),
+        ))
     }
 
     fn expand(self: &Rc<Self>) {
         let switching = self.state.replace(State::Expanded) == State::Expanded;
+        if !switching {
+            // Opening fresh: the pill appears on its tab, no glide.
+            self.pill.set(None);
+        }
         self.show_pager(false);
         if switching && self.pages().len() > 1 {
             // Moving between cards: the tabs stay where the pointer is and
             // only the highlight moves.
-            self.fill_tabs();
             self.dots.set_visible(true);
+            self.fill_tabs();
         }
         let (page, target) = self.expanded_page();
         self.set_bounds(target);
