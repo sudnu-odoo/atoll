@@ -10,8 +10,8 @@ use std::rc::Rc;
 use gtk::prelude::*;
 use gtk::{gdk, glib, Align, Label, Orientation};
 
+use super::control_button;
 use super::todo::Typing;
-use super::{control_button, every_minute, live_clock};
 use crate::services::controls::{Command, Menu, MenuItem, State};
 
 /// Power modes in click order.
@@ -63,37 +63,9 @@ impl ControlsCard {
         commands: async_channel::Sender<Command>,
         on_typing: impl Fn(Typing) + 'static,
     ) -> Rc<Self> {
-        // Top row sits under the GNOME bar: labels only.
-        let title = gtk::Box::builder().spacing(6).build();
-        title.append(
-            &gtk::Image::builder()
-                .icon_name("atoll-controls-symbolic")
-                .css_classes(["todo-icon"])
-                .build(),
-        );
-        title.append(
-            &Label::builder()
-                .label("CONTROLS")
-                .css_classes(["caps", "lavender"])
-                .build(),
-        );
-        let date = Label::builder().css_classes(["date"]).build();
-        let d = date.clone();
-        every_minute(move |now| {
-            if let Ok(s) = now.format("%a %d %b %Y") {
-                d.set_label(&s);
-            }
-        });
-        let time = Label::builder().css_classes(["clock"]).build();
-        live_clock(&time, "%H:%M:%S");
-        let when = gtk::Box::builder().spacing(8).build();
-        when.append(&date);
-        when.append(&time);
-        let top = gtk::CenterBox::builder()
-            .css_classes(["card-top"])
-            .start_widget(&title)
-            .center_widget(&when)
-            .build();
+        // The island's shared top row (tabs, clock, settings) names the card
+        // and shows the time; this row keeps only the card's own actions.
+        let top = gtk::CenterBox::builder().css_classes(["card-top"]).build();
 
         // Main view: sliders + tiles.
         let volume = slider("atoll-volume-symbolic", "Mute", true);

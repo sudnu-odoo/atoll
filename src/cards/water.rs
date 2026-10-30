@@ -7,7 +7,7 @@ use std::rc::Rc;
 use gtk::prelude::*;
 use gtk::{cairo, Align, DrawingArea, Label, Orientation};
 
-use super::{control_button, live_clock};
+use super::control_button;
 use crate::palette;
 use crate::water::{Command, View};
 
@@ -28,27 +28,9 @@ pub struct WaterCard {
 
 impl WaterCard {
     pub fn new(commands: async_channel::Sender<Command>) -> Self {
-        // Top row sits under the GNOME bar (no clicks there): labels only.
-        let title = gtk::Box::builder().spacing(6).build();
-        title.append(
-            &gtk::Image::builder()
-                .icon_name("atoll-drop-symbolic")
-                .css_classes(["water-icon"])
-                .build(),
-        );
-        title.append(
-            &Label::builder()
-                .label("WATER")
-                .css_classes(["caps", "lavender"])
-                .build(),
-        );
-        let time = Label::builder().css_classes(["clock"]).build();
-        live_clock(&time, "%H:%M:%S");
-        let top = gtk::CenterBox::builder()
-            .css_classes(["card-top"])
-            .start_widget(&title)
-            .center_widget(&time)
-            .build();
+        // The island's shared top row (tabs, clock, settings) names the card
+        // and shows the time; this row keeps only the card's own actions.
+        let top = gtk::CenterBox::builder().css_classes(["card-top"]).build();
 
         let amount = Label::builder().css_classes(["water-amount"]).build();
         let goal = Label::builder()

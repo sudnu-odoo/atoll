@@ -9,8 +9,8 @@ use std::rc::Rc;
 use gtk::prelude::*;
 use gtk::{gdk, gio, glib, Align, Label, Orientation};
 
+use super::control_button;
 use super::widgets::Cover;
-use super::{control_button, every_minute, live_clock};
 use crate::shelf::Command;
 
 const TILE_W: i32 = 92;
@@ -34,31 +34,13 @@ impl ShelfCard {
     ) -> Rc<Self> {
         // Top row (over the GNOME bar; its Clear button is clicked through the
         // island's bar-click handling).
-        let title = Label::builder()
-            .label("Shelf")
-            .css_classes(["todo-title"])
-            .build();
+        // The island's shared top row (tabs, clock, settings) names the card
+        // and shows the time; this row keeps only the card's own actions.
         let clear = control_button(&["shelf-clear"], None);
         clear.set_label("Clear");
-        let start = gtk::Box::builder().spacing(10).build();
-        start.append(&title);
-        start.append(&clear);
-        let date = Label::builder().css_classes(["date"]).build();
-        let d = date.clone();
-        every_minute(move |now| {
-            if let Ok(s) = now.format("%a %d %b %Y") {
-                d.set_label(&s);
-            }
-        });
-        let time = Label::builder().css_classes(["clock"]).build();
-        live_clock(&time, "%H:%M:%S");
-        let when = gtk::Box::builder().spacing(8).build();
-        when.append(&date);
-        when.append(&time);
         let top = gtk::CenterBox::builder()
             .css_classes(["card-top"])
-            .start_widget(&start)
-            .center_widget(&when)
+            .start_widget(&clear)
             .build();
 
         let tiles = gtk::Box::builder().spacing(8).build();

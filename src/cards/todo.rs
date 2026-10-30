@@ -12,8 +12,8 @@ use std::rc::Rc;
 use gtk::prelude::*;
 use gtk::{gdk, glib, Align, DrawingArea, Label, Orientation};
 
+use super::control_button;
 use super::widgets::draw_ring;
-use super::{control_button, every_minute, live_clock};
 use crate::todo::{Command, Draft, Task, View};
 
 /// Height of the right panel (list or form).
@@ -62,20 +62,6 @@ impl TodoCard {
         commands: async_channel::Sender<Command>,
         on_typing: impl Fn(Typing) + 'static,
     ) -> Rc<Self> {
-        // Top row sits under the GNOME bar (no clicks there): labels only.
-        let title = gtk::Box::builder().build();
-        title.append(
-            &Label::builder()
-                .label("Todo")
-                .css_classes(["todo-title"])
-                .build(),
-        );
-        title.append(
-            &Label::builder()
-                .label("List")
-                .css_classes(["todo-title", "accent"])
-                .build(),
-        );
         let done_fraction = Rc::new(Cell::new(0.0));
         let ring = DrawingArea::builder()
             .content_width(14)
@@ -84,23 +70,12 @@ impl TodoCard {
             .build();
         let f = done_fraction.clone();
         ring.set_draw_func(move |_, cr, w, h| draw_ring(cr, f64::from(w), f64::from(h), f.get()));
-        let date = Label::builder().css_classes(["date"]).build();
-        let d = date.clone();
-        every_minute(move |now| {
-            if let Ok(s) = now.format("%a %d %b %Y") {
-                d.set_label(&s);
-            }
-        });
-        let time = Label::builder().css_classes(["clock"]).build();
-        live_clock(&time, "%H:%M:%S");
-        let when = gtk::Box::builder().spacing(8).build();
-        when.append(&ring);
-        when.append(&date);
-        when.append(&time);
+        // The island's shared top row (tabs, clock, settings) names the card
+        // and shows the time; this row keeps only the card's own actions.
+        // The ring (share of tasks done) is the card's own information.
         let top = gtk::CenterBox::builder()
             .css_classes(["card-top"])
-            .start_widget(&title)
-            .center_widget(&when)
+            .start_widget(&ring)
             .build();
 
         // Left: big progress, label, then the two actions.

@@ -31,10 +31,11 @@ use crate::water;
 pub const COLLAPSED: (f64, f64) = (250.0, 32.0);
 // Expanded cards keep a 52px margin each side (see style.css) for the page
 // arrows and the settings button, with room to spare around them.
-// Cards end ~10px above the bottom edge; with more than one card the notch
-// grows by NAV_H below them for the card tabs.
-/// Strip under the cards for the tabs (one icon per card).
-const NAV_H: f64 = 30.0;
+// Cards end ~10px above the bottom edge. The tabs, clock and settings button
+// share the top row of every card, at a fixed spot: the notch hangs from the
+// top of the screen, so things there never move when cards change size.
+/// Top of the shared row, matching the cards' 16px top padding.
+const TOP_ROW_Y: i32 = 16;
 /// Icon and name for a card's tab.
 fn tab(page: &str) -> (&'static str, &'static str) {
     match page {
@@ -44,7 +45,7 @@ fn tab(page: &str) -> (&'static str, &'static str) {
         "notifications" => ("atoll-bell-symbolic", "Notifications"),
         "calendar" => ("atoll-event-symbolic", "Calendar"),
         "water" => ("atoll-drop-symbolic", "Water"),
-        "todo" => ("atoll-check-circle-symbolic", "To-do"),
+        "todo" => ("atoll-tasks-symbolic", "To-do"),
         "shelf" => ("atoll-tray-symbolic", "Shelf"),
         _ => ("atoll-circle-symbolic", ""),
     }
@@ -169,6 +170,8 @@ pub struct Island {
     /// The island itself, for the tab buttons (rebuilt on every page).
     me: RefCell<std::rc::Weak<Island>>,
     gear: gtk::Button,
+    /// Shared top row: the time, left of the settings button.
+    clock: gtk::Label,
     /// Under the › arrow, only beside open lyrics.
     translate_button: gtk::Button,
     translate: Cell<bool>,
@@ -346,7 +349,7 @@ impl Island {
         // the card itself.
         let prev = control_button(&["pager"], Some("atoll-left-symbolic"));
         let next = control_button(&["pager"], Some("atoll-right-symbolic"));
-        // Card tabs: an icon per card, the current one lit; click to jump.
+        // Card tabs: an icon per card, the current one named; click to jump.
         let dots = gtk::Box::builder()
             .css_classes(["tabs"])
             .spacing(4)
@@ -374,6 +377,15 @@ impl Island {
         root.add_overlay(&next);
         root.add_overlay(&dots);
         root.add_overlay(&gear);
+        let clock = gtk::Label::builder()
+            .css_classes(["clock"])
+            .halign(Align::End)
+            .valign(Align::Start)
+            .can_target(false)
+            .visible(false)
+            .build();
+        crate::cards::live_clock(&clock, "%H:%M:%S");
+        root.add_overlay(&clock);
         let translate_button =
             control_button(&["pager", "translate"], Some("atoll-translate-symbolic"));
         translate_button.set_tooltip_text(Some("Translate to English"));
@@ -410,6 +422,7 @@ impl Island {
             dots,
             me: RefCell::new(std::rc::Weak::new()),
             gear,
+            clock,
             translate: Cell::new(translate_button.has_css_class("on")),
             translate_button,
             state: Cell::new(State::Collapsed),
@@ -852,14 +865,11 @@ impl Island {
         pages
     }
 
-    /// The current card and the notch size for it (its own size, plus the
-    /// tab strip when there's more than one card).
+    /// The current card and the notch size for it.
     fn expanded_page(&self) -> (&'static str, (f64, f64)) {
         let pages = self.pages();
         let i = self.page.get().min(pages.len() - 1);
-        let (name, (w, h)) = pages[i];
-        let nav = if pages.len() > 1 { NAV_H } else { 0.0 };
-        (name, (w, h + nav))
+        pages[i]
     }
 
     fn go_to(self: &Rc<Self>, i: usize) {
@@ -917,12 +927,17 @@ impl Island {
         // The gear sits in the top-right corner of every expanded card. That
         // is over the GNOME bar, so its clicks arrive via `on_click`.
         self.gear.set_visible(visible);
+        self.clock.set_visible(visible);
         if visible {
             let w = self.expanded_page().1 .0;
             // Same column as the › arrow below it.
             self.gear.set_margin_end((WIN_W - w as i32) / 2 + 8);
             // Centered on the cards' top row (16px padding + 26px row).
-            self.gear.set_margin_top(16);
+            self.gear.set_margin_top(TOP_ROW_Y);
+            // Clock beside the gear, its text centered on the same row.
+            self.clock
+                .set_margin_end((WIN_W - w as i32) / 2 + 8 + 26 + 12);
+            self.clock.set_margin_top(TOP_ROW_Y + 4);
         }
         let lyrics_open = visible && self.expanded_page() == ("music", EXPANDED_LYRICS);
         self.translate_button.set_visible(lyrics_open);
@@ -945,8 +960,14 @@ impl Island {
         self.next.set_margin_top(top);
         self.translate_button.set_margin_end(inset);
         self.translate_button.set_margin_top(top + 48);
-        self.dots.set_margin_top(h as i32 - NAV_H as i32);
+        self.fill_tabs();
+    }
 
+    /// One tab per card, the current one named. The strip is centered at the
+    /// top, so it stays put while the notch morphs between cards.
+    fn fill_tabs(&self) {
+        let pages = self.pages();
+        self.dots.set_margin_top(TOP_ROW_Y);
         while let Some(child) = self.dots.first_child() {
             self.dots.remove(&child);
         }
@@ -977,8 +998,14 @@ impl Island {
     }
 
     fn expand(self: &Rc<Self>) {
-        self.state.set(State::Expanded);
+        let switching = self.state.replace(State::Expanded) == State::Expanded;
         self.show_pager(false);
+        if switching && self.pages().len() > 1 {
+            // Moving between cards: the tabs stay where the pointer is and
+            // only the highlight moves.
+            self.fill_tabs();
+            self.dots.set_visible(true);
+        }
         let (_, target) = self.expanded_page();
         self.set_bounds(target);
         self.show_page("none", false);

@@ -2,6 +2,7 @@
 <gresources>
   <!-- GtkApplication adds <app id path>/icons to the icon theme. -->
   <gresource prefix="/dev/atoll/Atoll/icons/scalable/actions">
+    <file preprocess="xml-stripblanks" alias="atoll-tasks-symbolic.svg">icons/scalable/actions/atoll-tasks-symbolic.svg</file>
     <file preprocess="xml-stripblanks" alias="atoll-translate-symbolic.svg">icons/scalable/actions/atoll-translate-symbolic.svg</file>
     <file preprocess="xml-stripblanks" alias="atoll-lyrics-symbolic.svg">icons/scalable/actions/atoll-lyrics-symbolic.svg</file>
     <file preprocess="xml-stripblanks" alias="atoll-pin-symbolic.svg">icons/scalable/actions/atoll-pin-symbolic.svg</file>

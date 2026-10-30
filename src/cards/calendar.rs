@@ -10,7 +10,7 @@ use chrono::{Datelike, Local, NaiveDate, TimeZone};
 use gtk::prelude::*;
 use gtk::{gio, glib, Align, Label, Orientation};
 
-use super::{control_button, live_clock};
+use super::control_button;
 use crate::services::calendar::Meeting;
 
 const WEEKDAYS: [&str; 7] = ["M", "T", "W", "T", "F", "S", "S"];
@@ -30,27 +30,9 @@ pub struct CalendarCard {
 
 impl CalendarCard {
     pub fn new(request_month: impl Fn(i32, u32) + 'static) -> Rc<Self> {
-        // Top row sits under the GNOME bar (no clicks there): labels only.
-        let heading = gtk::Box::builder().spacing(6).build();
-        heading.append(
-            &gtk::Image::builder()
-                .icon_name("atoll-event-symbolic")
-                .css_classes(["todo-icon"])
-                .build(),
-        );
-        heading.append(
-            &Label::builder()
-                .label("CALENDAR")
-                .css_classes(["caps", "lavender"])
-                .build(),
-        );
-        let time = Label::builder().css_classes(["clock"]).build();
-        live_clock(&time, "%H:%M:%S");
-        let top = gtk::CenterBox::builder()
-            .css_classes(["card-top"])
-            .start_widget(&heading)
-            .center_widget(&time)
-            .build();
+        // The island's shared top row (tabs, clock, settings) names the card
+        // and shows the time; this row keeps only the card's own actions.
+        let top = gtk::CenterBox::builder().css_classes(["card-top"]).build();
 
         let prev = control_button(&["cal-nav"], Some("atoll-left-symbolic"));
         let next = control_button(&["cal-nav"], Some("atoll-right-symbolic"));

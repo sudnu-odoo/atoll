@@ -9,8 +9,8 @@ use gtk::prelude::*;
 use gtk::{gdk, glib, Align, Button, Label, Orientation};
 
 use super::lyrics::LyricsView;
+use super::mmss;
 use super::widgets::{Cover, Meter, Ring, TrackCell};
-use super::{every_minute, live_clock, mmss};
 use crate::services::lyrics::Line;
 use crate::services::mpris::{Command, NowPlaying};
 
@@ -87,31 +87,16 @@ impl MusicCard {
     ) -> Rc<Self> {
         let track = TrackCell::default();
 
-        // Top row sits under the GNOME bar, where the Shell receives all
-        // clicks, so it only shows information; every control is lower.
+        // The island's shared top row (tabs, clock, settings) names the card
+        // and shows the time; this row keeps only the card's own actions.
+        // The progress ring and meter live in the collapsed notch; the card
+        // shows the full timeline instead.
         let ring = Ring::new(track.clone(), 14);
-        let date = Label::builder().css_classes(["date"]).build();
-        let time = Label::builder().css_classes(["clock"]).build();
-        // The meter rides with the time; the top-right corner belongs to
-        // the settings button.
         let meter = Meter::new();
-        let when = gtk::Box::builder().spacing(8).build();
-        when.append(&ring.area);
-        when.append(&date);
-        when.append(&time);
-        when.append(&meter.area);
         let top = gtk::CenterBox::builder()
             .css_classes(["card-top"])
             .hexpand(true)
-            .center_widget(&when)
             .build();
-        live_clock(&time, "%H:%M:%S");
-        every_minute(move |now| {
-            if let Ok(s) = now.format("%a %d %b %Y") {
-                date.set_label(&s);
-            }
-        });
-
         let cover = Cover::new(COVER, 14.0);
         let text_label = |class: &str| {
             Label::builder()

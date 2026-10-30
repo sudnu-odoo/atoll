@@ -8,7 +8,7 @@ use std::rc::Rc;
 use gtk::prelude::*;
 use gtk::{gio, glib, Align, Label, Orientation};
 
-use super::{control_button, live_clock};
+use super::control_button;
 use crate::services::notifications::Notification;
 
 /// Taller than the other cards' bodies: chat messages need room to read.
@@ -26,32 +26,17 @@ pub struct NotificationsCard {
 impl NotificationsCard {
     pub fn new(on_clear: impl Fn(Option<u64>) + 'static) -> Rc<Self> {
         let on_clear: Rc<dyn Fn(Option<u64>)> = Rc::new(on_clear);
-        // Top row (over the GNOME bar; Clear is clicked through the island's
-        // bar-click handling).
-        let title = gtk::Box::builder().spacing(6).build();
-        title.append(
-            &gtk::Image::builder()
-                .icon_name("atoll-bell-symbolic")
-                .css_classes(["todo-icon"])
-                .build(),
-        );
-        title.append(
-            &Label::builder()
-                .label("NOTIFICATIONS")
-                .css_classes(["caps", "lavender"])
-                .build(),
-        );
+        // The island's shared top row (tabs, clock, settings) names the card
+        // and shows the time; this row keeps only the card's own actions.
+        // Clear sits over the GNOME bar; its clicks arrive through the
+        // island's bar-click handling.
         let clear = control_button(&["shelf-clear"], None);
         clear.set_label("Clear");
         let clear_all = on_clear.clone();
         clear.connect_clicked(move |_| clear_all(None));
-        title.append(&clear);
-        let time = Label::builder().css_classes(["clock"]).build();
-        live_clock(&time, "%H:%M:%S");
         let top = gtk::CenterBox::builder()
             .css_classes(["card-top"])
-            .start_widget(&title)
-            .center_widget(&time)
+            .start_widget(&clear)
             .build();
 
         let list = gtk::Box::builder()
