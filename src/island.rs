@@ -36,6 +36,16 @@ pub const COLLAPSED: (f64, f64) = (250.0, 32.0);
 // top of the screen, so things there never move when cards change size.
 /// Top of the shared row, matching the cards' 16px top padding.
 const TOP_ROW_Y: i32 = 16;
+/// Forward (to a card further right) slides the content left, back slides
+/// it right, so the motion matches where the card sits in the tabs.
+fn slide_toward(forward: bool) -> StackTransitionType {
+    if forward {
+        StackTransitionType::SlideLeft
+    } else {
+        StackTransitionType::SlideRight
+    }
+}
+
 /// Icon and name for a card's tab.
 fn tab(page: &str) -> (&'static str, &'static str) {
     match page {
@@ -89,6 +99,9 @@ const ANIM: Duration = Duration::from_millis(250);
 /// Grace period before collapsing, so brushing past the edge doesn't flicker.
 const COLLAPSE_DELAY: Duration = Duration::from_millis(300);
 const CONTENT_FADE_MS: u32 = 150;
+/// Card-to-card slide: long enough to read as movement, short enough not
+/// to hold up the next click.
+const SLIDE_MS: u32 = 240;
 /// How long a peek stays before folding back.
 const PEEK_HOLD: Duration = Duration::from_millis(3500);
 /// A peek that arrives while the notch is open waits for it to close; after
@@ -168,6 +181,8 @@ pub struct Island {
     prev: gtk::Button,
     next: gtk::Button,
     dots: gtk::Box,
+    /// Direction of the card switch in progress, for the slide.
+    slide: Cell<Option<StackTransitionType>>,
     /// The island itself, for the tab buttons (rebuilt on every page).
     me: RefCell<std::rc::Weak<Island>>,
     gear: gtk::Button,
@@ -421,6 +436,7 @@ impl Island {
             prev,
             next,
             dots,
+            slide: Cell::new(None),
             me: RefCell::new(std::rc::Weak::new()),
             gear,
             clock,
@@ -914,6 +930,7 @@ impl Island {
         if self.state.get() != State::Expanded || self.page.get() == i {
             return;
         }
+        self.slide.set(Some(slide_toward(i > self.page.get())));
         self.page.set(i);
         self.expand();
     }
@@ -925,6 +942,7 @@ impl Island {
             return;
         }
         let i = (self.page.get().min(n - 1) as isize + delta).rem_euclid(n as isize);
+        self.slide.set(Some(slide_toward(delta > 0)));
         self.page.set(i as usize);
         self.expand();
     }
@@ -1046,8 +1064,20 @@ impl Island {
             self.fill_tabs();
             self.dots.set_visible(true);
         }
-        let (_, target) = self.expanded_page();
+        let (page, target) = self.expanded_page();
         self.set_bounds(target);
+        if switching && self.size.get() == target && self.tick.borrow().is_none() {
+            // Same size: a straight carousel, old card out, new card in.
+            if let Some(slide) = self.slide.take() {
+                self.stack.set_transition_duration(SLIDE_MS);
+                self.stack.set_visible_child_full(page, slide);
+                self.music.set_active(page == "music");
+                self.show_pager(true);
+                return;
+            }
+        }
+        // Different size: the outline morphs first (content inside a moving
+        // outline would spill out), then the card slides in (`on_settled`).
         self.show_page("none", false);
         self.animate_to(target);
     }
@@ -1197,7 +1227,13 @@ impl Island {
             State::Claude => self.show_page("claude", true),
             State::Expanded => {
                 let (page, _) = self.expanded_page();
-                self.show_page(page, true);
+                match self.slide.take() {
+                    Some(slide) => {
+                        self.stack.set_transition_duration(SLIDE_MS);
+                        self.stack.set_visible_child_full(page, slide);
+                    }
+                    None => self.show_page(page, true),
+                }
                 self.music.set_active(page == "music");
                 self.show_pager(true);
             }
@@ -1205,6 +1241,7 @@ impl Island {
     }
 
     fn show_page(&self, name: &str, fade: bool) {
+        self.stack.set_transition_duration(CONTENT_FADE_MS);
         let transition = if fade {
             StackTransitionType::Crossfade
         } else {
