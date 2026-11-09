@@ -139,6 +139,9 @@ fn handle(event: &str) -> Option<Value> {
         .unwrap_or_default();
 
     let request = match event {
+        // Questions come through their own hook (with their options); a
+        // permission prompt for one would only show its raw JSON.
+        "permission" if asked_by_question_hook(&hook) => return None,
         "permission" => Request::Permission {
             tool: hook["tool_name"].as_str()?.to_owned(),
             summary: summarize(&hook["tool_input"]),
@@ -176,10 +179,11 @@ fn handle(event: &str) -> Option<Value> {
         _ => return None,
     };
 
-    let transcript = hook["transcript_path"]
-        .as_str()
-        .map(std::path::PathBuf::from);
-    let reply = exchange(&request, transcript.as_deref())?;
+    let transcript = hook["transcript_path"].as_str().map(|path| Watch {
+        path: std::path::PathBuf::from(path),
+        tool_use_id: hook["tool_use_id"].as_str().map(str::to_owned),
+    });
+    let reply = exchange(&request, transcript.as_ref())?;
     decision(&request, &hook, reply)
 }
 
@@ -203,27 +207,52 @@ fn always_label(suggestions: &Value) -> Option<String> {
     Some(format!("{what} · {scope}"))
 }
 
-/// The session moved on: a user or assistant entry was added to the
-/// transcript after `from` bytes, i.e. the prompt was answered elsewhere
-/// (terminal, VS Code). Other entries (hook progress, system notes) don't
-/// count.
-fn answered_elsewhere(transcript: &Path, from: u64) -> bool {
+/// AskUserQuestion goes through the question hook, with its options.
+fn asked_by_question_hook(hook: &Value) -> bool {
+    hook["tool_name"] == "AskUserQuestion"
+}
+
+/// The session transcript to watch while waiting, and the tool call the
+/// prompt is about (PreToolUse has its id; PermissionRequest doesn't).
+struct Watch {
+    path: std::path::PathBuf,
+    tool_use_id: Option<String>,
+}
+
+/// The prompt was answered elsewhere (terminal, VS Code): a tool result was
+/// added to the transcript after `from` bytes, for this tool call when its
+/// id is known. Claude's own messages don't count: the one carrying the
+/// tool call itself is often written while the hook is already waiting.
+fn answered_elsewhere(watch: &Watch, from: u64) -> bool {
     use std::io::{Seek, SeekFrom};
-    let Ok(mut f) = std::fs::File::open(transcript) else {
+    let Ok(mut f) = std::fs::File::open(&watch.path) else {
         return false;
     };
     if f.seek(SeekFrom::Start(from)).is_err() {
         return false;
     }
     BufReader::new(f).lines().map_while(Result::ok).any(|line| {
-        serde_json::from_str::<Value>(&line)
-            .is_ok_and(|v| matches!(v["type"].as_str(), Some("user" | "assistant")))
+        let Ok(v) = serde_json::from_str::<Value>(&line) else {
+            return false;
+        };
+        if v["type"] != "user" {
+            return false;
+        }
+        v["message"]["content"].as_array().is_some_and(|parts| {
+            parts.iter().any(|p| {
+                p["type"] == "tool_result"
+                    && watch
+                        .tool_use_id
+                        .as_deref()
+                        .is_none_or(|id| p["tool_use_id"] == id)
+            })
+        })
     })
 }
 
 /// Sends the request; for prompts, waits for the answer, or gives up as
 /// soon as the session shows it was answered elsewhere.
-fn exchange(request: &Request, transcript: Option<&Path>) -> Option<Reply> {
+fn exchange(request: &Request, transcript: Option<&Watch>) -> Option<Reply> {
     let mut stream = UnixStream::connect(claude::socket_path()?).ok()?;
     let mut line = serde_json::to_string(request).ok()?;
     line.push('\n');
@@ -235,7 +264,7 @@ fn exchange(request: &Request, transcript: Option<&Path>) -> Option<Reply> {
     let deadline =
         std::time::Instant::now() + claude::ANSWER_TIMEOUT + std::time::Duration::from_secs(3);
     let start = transcript
-        .and_then(|t| std::fs::metadata(t).ok())
+        .and_then(|t| std::fs::metadata(&t.path).ok())
         .map_or(0, |m| m.len());
     // Short reads, so the transcript is checked in between. Exiting closes
     // the socket, which tells Atoll to drop the prompt.
@@ -399,23 +428,35 @@ mod tests {
     }
 
     #[test]
-    fn only_user_or_assistant_entries_mean_answered() {
+    fn only_this_calls_tool_result_means_answered() {
         let path = std::env::temp_dir().join(format!("atoll-transcript-{}", std::process::id()));
-        std::fs::write(&path, "{\"type\":\"assistant\"}\n").unwrap();
+        std::fs::write(&path, "{\"type\":\"system\"}\n").unwrap();
         let start = std::fs::metadata(&path).unwrap().len();
-        assert!(!answered_elsewhere(&path, start));
+        let watch = Watch {
+            path: path.clone(),
+            tool_use_id: Some("toolu_1".into()),
+        };
         let mut f = std::fs::OpenOptions::new()
             .append(true)
             .open(&path)
             .unwrap();
-        writeln!(f, "{{\"type\":\"system\"}}").unwrap();
-        assert!(
-            !answered_elsewhere(&path, start),
-            "progress notes don't count"
-        );
-        writeln!(f, "{{\"type\":\"user\",\"message\":{{}}}}").unwrap();
-        assert!(answered_elsewhere(&path, start));
+        // Claude's own message carrying the question: not an answer.
+        writeln!(f, r#"{{"type":"assistant","message":{{"content":[{{"type":"tool_use","id":"toolu_1"}}]}}}}"#).unwrap();
+        assert!(!answered_elsewhere(&watch, start));
+        // Another tool call's result: not this one.
+        writeln!(f, r#"{{"type":"user","message":{{"content":[{{"type":"tool_result","tool_use_id":"toolu_0"}}]}}}}"#).unwrap();
+        assert!(!answered_elsewhere(&watch, start));
+        writeln!(f, r#"{{"type":"user","message":{{"content":[{{"type":"tool_result","tool_use_id":"toolu_1"}}]}}}}"#).unwrap();
+        assert!(answered_elsewhere(&watch, start));
         let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn question_tools_never_get_a_permission_prompt() {
+        assert!(asked_by_question_hook(
+            &json!({"tool_name": "AskUserQuestion"})
+        ));
+        assert!(!asked_by_question_hook(&json!({"tool_name": "Bash"})));
     }
 
     #[test]
