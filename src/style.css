@@ -92,8 +92,14 @@ window.island {
 .player.with-lyrics {
   padding-right: 24px;
 }
+/* Every card's reserved slot for the shared rows: the clock (over the
+   GNOME bar) and the tabs below it. Card content starts under both. */
 .card-top {
-  min-height: 26px;
+  min-height: 56px;
+}
+/* A card's own actions (Clear): a slim row at the top of its content. */
+.card-actions {
+  margin-bottom: 6px;
 }
 .water-card .card-top {
   margin-bottom: 4px;

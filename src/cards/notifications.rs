@@ -12,9 +12,9 @@ use super::control_button;
 use crate::services::notifications::Notification;
 
 /// Taller than the other cards' bodies: chat messages need room to read.
-const LIST_H: i32 = 186;
+const LIST_H: i32 = 160;
 /// Empty, the card is as short as the others (see `island::pages`).
-const EMPTY_H: i32 = 132;
+const EMPTY_H: i32 = 106;
 
 pub struct NotificationsCard {
     pub root: gtk::Box,
@@ -31,15 +31,15 @@ impl NotificationsCard {
         let on_clear: Rc<dyn Fn(Option<u64>)> = Rc::new(on_clear);
         // The island's shared top row (tabs, clock, settings) names the card
         // and shows the time; this row keeps only the card's own actions.
-        // Clear sits over the GNOME bar; its clicks arrive through the
-        // island's bar-click handling.
+        let top = gtk::CenterBox::builder().css_classes(["card-top"]).build();
+        // The card's own action, in its content under the tabs.
         let clear = control_button(&["shelf-clear"], None);
         clear.set_label("Clear");
         let clear_all = on_clear.clone();
         clear.connect_clicked(move |_| clear_all(None));
-        let top = gtk::CenterBox::builder()
-            .css_classes(["card-top"])
-            .start_widget(&clear)
+        let actions = gtk::CenterBox::builder()
+            .css_classes(["card-actions"])
+            .end_widget(&clear)
             .build();
 
         let list = gtk::Box::builder()
@@ -67,6 +67,7 @@ impl NotificationsCard {
             .orientation(Orientation::Vertical)
             .css_classes(["todo-body"])
             .build();
+        body.append(&actions);
         body.append(&scroller);
         root.append(&body);
 

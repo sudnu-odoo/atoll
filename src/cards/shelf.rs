@@ -38,9 +38,11 @@ impl ShelfCard {
         // and shows the time; this row keeps only the card's own actions.
         let clear = control_button(&["shelf-clear"], None);
         clear.set_label("Clear");
-        let top = gtk::CenterBox::builder()
-            .css_classes(["card-top"])
-            .start_widget(&clear)
+        let top = gtk::CenterBox::builder().css_classes(["card-top"]).build();
+        // The card's own action, in its content under the tabs.
+        let actions = gtk::CenterBox::builder()
+            .css_classes(["card-actions"])
+            .end_widget(&clear)
             .build();
 
         let tiles = gtk::Box::builder().spacing(8).build();
@@ -67,6 +69,7 @@ impl ShelfCard {
             .valign(Align::Start)
             .build();
         root.append(&top);
+        root.append(&actions);
         root.append(&body);
 
         let card = Rc::new(Self {

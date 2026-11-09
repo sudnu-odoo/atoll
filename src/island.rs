@@ -35,11 +35,14 @@ pub const COLLAPSED: (f64, f64) = (250.0, 32.0);
 // share the top row of every card, at a fixed spot: the notch hangs from the
 // top of the screen, so things there never move when cards change size.
 /// Top of the shared row, matching the cards' 16px top padding.
-const TOP_ROW_Y: i32 = 16;
+const TOP_ROW_Y: i32 = 40;
+/// The clock sits above the tabs, centered in the strip over the GNOME bar,
+/// where it also is when the notch is closed.
+const CLOCK_Y: i32 = 4;
 /// Height of that row (tabs, gear, clock all share it).
 const TOP_ROW_H: i32 = 26;
 /// Top of the ‹ › page arrows, the same on every card.
-const ARROWS_Y: i32 = 74;
+const ARROWS_Y: i32 = 104;
 /// The tab strip starts this far left of the notch's center, on every card.
 /// Centering it instead would shift every tab whenever the named tab's
 /// label changes length.
@@ -74,18 +77,18 @@ fn tab(page: &str) -> (&'static str, &'static str) {
 
 /// How long "no track" must last before the music card goes away.
 const MUSIC_GONE_GRACE: std::time::Duration = std::time::Duration::from_secs(2);
-pub const EXPANDED_MUSIC: (f64, f64) = (568.0, 222.0);
-pub const EXPANDED_LYRICS: (f64, f64) = (868.0, 222.0);
-pub const EXPANDED_WATER: (f64, f64) = (568.0, 206.0);
-pub const EXPANDED_IDLE: (f64, f64) = (568.0, 140.0);
-pub const EXPANDED_TODO: (f64, f64) = (568.0, 206.0);
+pub const EXPANDED_MUSIC: (f64, f64) = (568.0, 252.0);
+pub const EXPANDED_LYRICS: (f64, f64) = (868.0, 252.0);
+pub const EXPANDED_WATER: (f64, f64) = (568.0, 236.0);
+pub const EXPANDED_IDLE: (f64, f64) = (568.0, 170.0);
+pub const EXPANDED_TODO: (f64, f64) = (568.0, 236.0);
 /// Wider than the rest: month grid and day agenda side by side.
-pub const EXPANDED_CALENDAR: (f64, f64) = (680.0, 252.0);
-pub const EXPANDED_SHELF: (f64, f64) = (568.0, 206.0);
-pub const EXPANDED_CONTROLS: (f64, f64) = (568.0, 206.0);
-pub const EXPANDED_NOTIFICATIONS: (f64, f64) = (568.0, 260.0);
+pub const EXPANDED_CALENDAR: (f64, f64) = (680.0, 282.0);
+pub const EXPANDED_SHELF: (f64, f64) = (568.0, 236.0);
+pub const EXPANDED_CONTROLS: (f64, f64) = (568.0, 236.0);
+pub const EXPANDED_NOTIFICATIONS: (f64, f64) = (568.0, 290.0);
 /// No notifications: as short as the other cards.
-pub const EXPANDED_NOTIFICATIONS_EMPTY: (f64, f64) = (568.0, 206.0);
+pub const EXPANDED_NOTIFICATIONS_EMPTY: (f64, f64) = (568.0, 236.0);
 /// Claude prompts: fixed width, height grows with the content up to
 /// CLAUDE_MAX_H (long questions, many options).
 pub const EXPANDED_CLAUDE: (f64, f64) = (600.0, 206.0);
@@ -439,8 +442,9 @@ impl Island {
         root.add_overlay(&gear);
         let clock = gtk::Label::builder()
             .css_classes(["clock"])
-            .halign(Align::End)
+            .halign(Align::Center)
             .valign(Align::Start)
+            .margin_top(CLOCK_Y)
             // Same height as the tabs and gear, text centered in it.
             .height_request(TOP_ROW_H)
             .yalign(0.5)
@@ -1094,12 +1098,8 @@ impl Island {
             let w = self.expanded_page().1 .0;
             // Same column as the › arrow below it.
             self.gear.set_margin_end((WIN_W - w as i32) / 2 + 8);
-            // Centered on the cards' top row (16px padding + 26px row).
+            // On the tab row.
             self.gear.set_margin_top(TOP_ROW_Y);
-            // Clock beside the gear, its text centered on the same row.
-            self.clock
-                .set_margin_end((WIN_W - w as i32) / 2 + 8 + 26 + 12);
-            self.clock.set_margin_top(TOP_ROW_Y);
         }
         let lyrics_open = visible && self.expanded_page() == ("music", EXPANDED_LYRICS);
         self.translate_button.set_visible(lyrics_open);
