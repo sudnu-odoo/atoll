@@ -1,5 +1,6 @@
-//! Claude Code prompts in the notch: tool permissions (Allow / Deny) and
-//! questions (a list of options with their descriptions). Renders a
+//! Claude Code prompts in the notch: tool permissions (Allow, Always allow,
+//! Deny, or a typed reply) and questions (a list of options with their
+//! descriptions, plus a typed "Other" answer). Renders a
 //! `claude::Request` and sends the user's `Reply`; the hub routes it back to
 //! the waiting hook.
 //!
@@ -15,6 +16,7 @@ use gtk::prelude::*;
 use gtk::{glib, Align, Label, Orientation};
 
 use super::control_button;
+use super::todo::Typing;
 use crate::services::claude::{Choice, Question, Reply, Request, ANSWER_TIMEOUT};
 
 // Wrapping labels below use `max_width_chars(1)` + `hexpand`: they ask for
@@ -39,10 +41,16 @@ pub struct ClaudeCard {
     /// Called when the content changes size (next question), so the island
     /// can resize the notch.
     on_layout: RefCell<Option<Box<dyn Fn()>>>,
+    /// Typing a reply takes keyboard focus (and gives it back after).
+    on_typing: Rc<dyn Fn(Typing)>,
+    typing: Cell<bool>,
 }
 
 impl ClaudeCard {
-    pub fn new(answers: async_channel::Sender<Reply>) -> Rc<Self> {
+    pub fn new(
+        answers: async_channel::Sender<Reply>,
+        on_typing: impl Fn(Typing) + 'static,
+    ) -> Rc<Self> {
         // Top row sits under the GNOME bar: labels only.
         let title = gtk::Box::builder().spacing(6).build();
         title.append(
@@ -105,6 +113,8 @@ impl ClaudeCard {
             left: Cell::new(0),
             ticker: RefCell::default(),
             on_layout: RefCell::default(),
+            on_typing: Rc::new(on_typing),
+            typing: Cell::new(false),
         })
     }
 
@@ -125,10 +135,11 @@ impl ClaudeCard {
                 tool,
                 summary,
                 project,
+                always,
             } => {
                 self.project
                     .set_label(&format!("· {}", project.to_uppercase()));
-                self.permission(tool, summary);
+                self.permission(tool, summary, always.as_deref());
             }
             Request::Question { questions, project } => {
                 self.project
@@ -150,6 +161,92 @@ impl ClaudeCard {
         if let Some(id) = self.ticker.take() {
             id.remove();
         }
+        self.end_typing();
+    }
+
+    fn end_typing(&self) {
+        if self.typing.replace(false) {
+            (self.on_typing)(Typing::Ended {
+                restore_focus: true,
+            });
+        }
+    }
+
+    /// Replaces the action row with a text field. Enter sends `submit`'s
+    /// reply, Esc goes back to the buttons.
+    fn ask_text(
+        self: &Rc<Self>,
+        row: &gtk::Box,
+        placeholder: &str,
+        submit: impl Fn(&Rc<Self>, String) + 'static,
+    ) {
+        let buttons: Vec<gtk::Widget> = {
+            let mut v = Vec::new();
+            let mut c = row.first_child();
+            while let Some(w) = c {
+                c = w.next_sibling();
+                v.push(w);
+            }
+            v
+        };
+        for b in &buttons {
+            b.set_visible(false);
+        }
+        let entry = gtk::Entry::builder()
+            .placeholder_text(placeholder)
+            .hexpand(true)
+            .css_classes(["claude-entry"])
+            .build();
+        let send = control_button(&["pill", "primary-pill"], None);
+        send.set_label("Send");
+        row.set_halign(Align::Fill);
+        row.append(&entry);
+        row.append(&send);
+
+        let submit = Rc::new(submit);
+        let go = {
+            let (weak, entry, submit) = (Rc::downgrade(self), entry.clone(), submit.clone());
+            Rc::new(move || {
+                let text = entry.text().trim().to_owned();
+                if text.is_empty() {
+                    return;
+                }
+                if let Some(card) = weak.upgrade() {
+                    card.end_typing();
+                    submit(&card, text);
+                }
+            })
+        };
+        let g = go.clone();
+        entry.connect_activate(move |_| g());
+        send.connect_clicked(move |_| go());
+        let keys = gtk::EventControllerKey::new();
+        let (weak, row_w, entry_w, send_w) = (
+            Rc::downgrade(self),
+            row.clone(),
+            entry.clone(),
+            send.clone(),
+        );
+        keys.connect_key_pressed(move |_, key, _, _| {
+            if key != gtk::gdk::Key::Escape {
+                return glib::Propagation::Proceed;
+            }
+            row_w.remove(&entry_w);
+            row_w.remove(&send_w);
+            row_w.set_halign(Align::End);
+            for b in &buttons {
+                b.set_visible(true);
+            }
+            if let Some(card) = weak.upgrade() {
+                card.end_typing();
+            }
+            glib::Propagation::Stop
+        });
+        entry.add_controller(keys);
+
+        self.typing.set(true);
+        (self.on_typing)(Typing::Started);
+        entry.grab_focus();
     }
 
     fn clear(&self) {
@@ -159,7 +256,7 @@ impl ClaudeCard {
         }
     }
 
-    fn permission(self: &Rc<Self>, tool: &str, summary: &str) {
+    fn permission(self: &Rc<Self>, tool: &str, summary: &str, always: Option<&str>) {
         let heading = gtk::Box::builder().spacing(10).build();
         heading.append(
             &Label::builder()
@@ -194,16 +291,41 @@ impl ClaudeCard {
             .child(&what)
             .build();
 
-        let deny = self.action_button("Deny", "atoll-close-symbolic", &["pill"], Reply::Deny);
-        let allow = self.action_button(
+        let actions = gtk::Box::builder().spacing(10).halign(Align::End).build();
+        // A typed reply denies with a reason Claude reads ("use pnpm
+        // instead"), like typing in Claude Code's own prompt.
+        let reply = control_button(&["pill"], None);
+        let content = gtk::Box::builder().spacing(6).build();
+        content.append(&gtk::Image::from_icon_name("atoll-edit-symbolic"));
+        content.append(&Label::new(Some("Reply…")));
+        reply.set_child(Some(&content));
+        reply.set_tooltip_text(Some("Deny and tell Claude what to do instead"));
+        let (weak, row) = (Rc::downgrade(self), actions.clone());
+        reply.connect_clicked(move |_| {
+            if let Some(card) = weak.upgrade() {
+                card.ask_text(&row, "Tell Claude what to do instead…", |card, text| {
+                    let _ = card.answers.try_send(Reply::DenyWith(text));
+                });
+            }
+        });
+        actions.append(&reply);
+        actions.append(&self.action_button("Deny", "atoll-close-symbolic", &["pill"], Reply::Deny));
+        if let Some(rule) = always {
+            let b = self.action_button(
+                "Always allow",
+                "atoll-check-circle-symbolic",
+                &["pill"],
+                Reply::AllowAlways,
+            );
+            b.set_tooltip_text(Some(&format!("Allow, and don't ask again for {rule}")));
+            actions.append(&b);
+        }
+        actions.append(&self.action_button(
             "Allow",
             "atoll-check-symbolic",
             &["pill", "primary-pill"],
             Reply::Allow,
-        );
-        let actions = gtk::Box::builder().spacing(10).halign(Align::End).build();
-        actions.append(&deny);
-        actions.append(&allow);
+        ));
 
         self.body.append(&heading);
         self.body.append(&scroller);
@@ -265,6 +387,7 @@ impl ClaudeCard {
         for choice in &q.options {
             list.append(&self.option_row(&q, choice, &picked));
         }
+        list.append(&self.other_row(&q));
         self.body.append(&list);
 
         if q.multi_select {
@@ -354,6 +477,55 @@ impl ClaudeCard {
                     .insert(question.clone(), label.clone());
                 card.next_question();
             }
+        });
+        b.upcast()
+    }
+
+    /// "Other…": a typed answer instead of the listed options, like Claude
+    /// Code's own picker offers.
+    fn other_row(self: &Rc<Self>, q: &Question) -> gtk::Widget {
+        let text = gtk::Box::builder()
+            .orientation(Orientation::Vertical)
+            .spacing(2)
+            .build();
+        text.append(
+            &Label::builder()
+                .label("Other…")
+                .css_classes(["option-label"])
+                .xalign(0.0)
+                .build(),
+        );
+        text.append(
+            &Label::builder()
+                .label("Type your own answer")
+                .css_classes(["option-description"])
+                .xalign(0.0)
+                .build(),
+        );
+        let b = gtk::Button::builder()
+            .child(&text)
+            .css_classes(["option-row"])
+            .focus_on_click(false)
+            .can_focus(false)
+            .build();
+        b.set_cursor_from_name(Some("pointer"));
+        let (weak, question) = (Rc::downgrade(self), q.question.clone());
+        b.connect_clicked(move |b| {
+            let Some(card) = weak.upgrade() else { return };
+            // The field takes the row's place.
+            let row = gtk::Box::builder().spacing(10).build();
+            if let Some(list) = b.parent().and_downcast::<gtk::Box>() {
+                list.insert_child_after(&row, Some(b));
+                b.set_visible(false);
+            }
+            let question = question.clone();
+            card.ask_text(&row, "Your answer…", move |card, text| {
+                card.collected.borrow_mut().insert(question.clone(), text);
+                card.next_question();
+            });
+            if let Some(f) = card.on_layout.borrow().as_ref() {
+                f();
+            };
         });
         b.upcast()
     }

@@ -259,33 +259,21 @@ impl Island {
                     island.toggle_pin();
                 }
             };
+            // One for every card that takes typing (to-do, Wi-Fi password,
+            // Claude replies).
             let w = weak.clone();
-            let on_typing = move |t| {
+            let on_typing: Rc<dyn Fn(Typing)> = Rc::new(move |t| {
                 if let Some(island) = w.upgrade() {
                     island.on_typing(t);
                 }
-            };
+            });
             let w = weak.clone();
             let on_drag = move |active| {
                 if let Some(island) = w.upgrade() {
                     island.set_dragging(active);
                 }
             };
-            let w = weak.clone();
-            let on_controls_typing = move |t| {
-                if let Some(island) = w.upgrade() {
-                    island.on_typing(t);
-                }
-            };
-            Self::build(
-                hit,
-                deps,
-                on_lyrics,
-                on_pin,
-                on_typing,
-                on_drag,
-                on_controls_typing,
-            )
+            Self::build(hit, deps, on_lyrics, on_pin, on_typing, on_drag)
         });
         island.connect_pager();
         let weak = Rc::downgrade(&island);
@@ -312,10 +300,13 @@ impl Island {
         deps: Deps,
         on_lyrics: impl Fn() + 'static,
         on_pin: impl Fn() + 'static,
-        on_typing: impl Fn(Typing) + 'static,
+        on_typing: Rc<dyn Fn(Typing)>,
         on_drag: impl Fn(bool) + 'static,
-        on_controls_typing: impl Fn(Typing) + 'static,
     ) -> Self {
+        let typing = |t: &Rc<dyn Fn(Typing)>| {
+            let t = t.clone();
+            move |x| t(x)
+        };
         let Deps {
             commands,
             lyrics_requests,
@@ -343,8 +334,8 @@ impl Island {
         music.set_lyrics_available(features.lyrics);
         let idle = Idle::new();
         let water = WaterCard::new(water_commands);
-        let claude = ClaudeCard::new(claude_answers);
-        let todo = TodoCard::new(todo_commands, on_typing);
+        let claude = ClaudeCard::new(claude_answers, typing(&on_typing));
+        let todo = TodoCard::new(todo_commands, typing(&on_typing));
 
         // Pages size to their own content, so the overlay never forces the
         // notch area bigger than the visible card.
@@ -363,7 +354,7 @@ impl Island {
         stack.add_named(&todo.root, Some("todo"));
         let shelf = ShelfCard::new(shelf_commands.clone(), on_drag);
         stack.add_named(&shelf.root, Some("shelf"));
-        let controls = ControlsCard::new(controls_commands, on_controls_typing);
+        let controls = ControlsCard::new(controls_commands, typing(&on_typing));
         stack.add_named(&controls.root, Some("controls"));
         let notifications = NotificationsCard::new(move |which| {
             let _ = clear_notifications.try_send(which);
@@ -568,6 +559,41 @@ impl Island {
             "todo-add" | "todo-edit" => {
                 self.todo.show_form_for_debugging(page == "todo-edit");
                 "todo"
+            }
+            // Fake prompts, preview only (no hook is waiting on them).
+            "claude-permission" | "claude-question" if crate::preview::active() => {
+                let request = if page == "claude-permission" {
+                    claude::Request::Permission {
+                        tool: "Bash".into(),
+                        summary: "mv loyalty_points_on_payment sejatibrand_loyalty_points && \
+                                  grep -rn loyalty_points_on_payment ."
+                            .into(),
+                        project: "19.0-sejatibrands-6634496-sudnu".into(),
+                        always: Some("mv:* · this project".into()),
+                    }
+                } else {
+                    claude::Request::Question {
+                        questions: vec![claude::Question {
+                            question: "Which lyrics source should Atoll try next?".into(),
+                            header: "Lyrics".into(),
+                            options: vec![
+                                claude::Choice {
+                                    label: "LRCLIB only".into(),
+                                    description: "Keep the current single source".into(),
+                                },
+                                claude::Choice {
+                                    label: "Add a fallback".into(),
+                                    description: "Try a second source when LRCLIB has none"
+                                        .into(),
+                                },
+                            ],
+                            multi_select: false,
+                        }],
+                        project: "atoll".into(),
+                    }
+                };
+                self.on_claude(Some(&request));
+                return;
             }
             "lyrics" => {
                 if !self.lyrics_mode.get() {

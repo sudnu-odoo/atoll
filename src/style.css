@@ -572,6 +572,21 @@ button.todo-row.done .todo-check {
 entry.todo-field:focus-within {
   border-color: alpha(@pink, 0.6);
 }
+/* A typed reply or "Other" answer to Claude: same field as the to-do form,
+   pill-shaped to sit in the row of pill buttons. */
+entry.claude-entry {
+  min-height: 34px;
+  padding: 0 14px;
+  border-radius: 999px;
+  border: 1px solid alpha(@bg_raised, 0.9);
+  background-color: alpha(@bg_raised, 0.5);
+  color: @text;
+  box-shadow: none;
+  caret-color: @pink;
+}
+entry.claude-entry:focus-within {
+  border-color: alpha(@pink, 0.6);
+}
 entry.todo-field image {
   color: @muted;
 }

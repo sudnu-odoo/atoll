@@ -106,12 +106,15 @@ fn command_done(args: &[String]) {
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_default();
-    let _ = exchange(&Request::CommandDone {
-        command: command.trim().to_owned(),
-        status,
-        seconds,
-        project,
-    });
+    let _ = exchange(
+        &Request::CommandDone {
+            command: command.trim().to_owned(),
+            status,
+            seconds,
+            project,
+        },
+        None,
+    );
 }
 
 /// The program actually run, past `sudo`, env assignments and the like.
@@ -140,6 +143,7 @@ fn handle(event: &str) -> Option<Value> {
             tool: hook["tool_name"].as_str()?.to_owned(),
             summary: summarize(&hook["tool_input"]),
             project,
+            always: always_label(&hook["permission_suggestions"]),
         },
         "question" => Request::Question {
             questions: serde_json::from_value::<Vec<Question>>(
@@ -172,12 +176,54 @@ fn handle(event: &str) -> Option<Value> {
         _ => return None,
     };
 
-    let reply = exchange(&request)?;
+    let transcript = hook["transcript_path"]
+        .as_str()
+        .map(std::path::PathBuf::from);
+    let reply = exchange(&request, transcript.as_deref())?;
     decision(&request, &hook, reply)
 }
 
-/// Sends the request; for prompts, waits for the answer.
-fn exchange(request: &Request) -> Option<Reply> {
+/// What "Always allow" would save, from Claude Code's first suggestion:
+/// the rule ("npm run lint", or the tool name) and where it applies.
+fn always_label(suggestions: &Value) -> Option<String> {
+    let s = suggestions.get(0)?;
+    if s["type"] != "addRules" || s["behavior"] != "allow" {
+        return None;
+    }
+    let rule = &s["rules"][0];
+    let what = rule["ruleContent"]
+        .as_str()
+        .or_else(|| rule["toolName"].as_str())?;
+    let scope = match s["destination"].as_str()? {
+        "session" => "this session",
+        "localSettings" | "projectSettings" => "this project",
+        "userSettings" => "everywhere",
+        _ => return None,
+    };
+    Some(format!("{what} · {scope}"))
+}
+
+/// The session moved on: a user or assistant entry was added to the
+/// transcript after `from` bytes, i.e. the prompt was answered elsewhere
+/// (terminal, VS Code). Other entries (hook progress, system notes) don't
+/// count.
+fn answered_elsewhere(transcript: &Path, from: u64) -> bool {
+    use std::io::{Seek, SeekFrom};
+    let Ok(mut f) = std::fs::File::open(transcript) else {
+        return false;
+    };
+    if f.seek(SeekFrom::Start(from)).is_err() {
+        return false;
+    }
+    BufReader::new(f).lines().map_while(Result::ok).any(|line| {
+        serde_json::from_str::<Value>(&line)
+            .is_ok_and(|v| matches!(v["type"].as_str(), Some("user" | "assistant")))
+    })
+}
+
+/// Sends the request; for prompts, waits for the answer, or gives up as
+/// soon as the session shows it was answered elsewhere.
+fn exchange(request: &Request, transcript: Option<&Path>) -> Option<Reply> {
     let mut stream = UnixStream::connect(claude::socket_path()?).ok()?;
     let mut line = serde_json::to_string(request).ok()?;
     line.push('\n');
@@ -186,12 +232,36 @@ fn exchange(request: &Request) -> Option<Reply> {
         return None;
     }
     // A little past Atoll's own timeout, so Atoll gives up first.
-    let _ = stream.set_read_timeout(Some(
-        claude::ANSWER_TIMEOUT + std::time::Duration::from_secs(3),
-    ));
+    let deadline =
+        std::time::Instant::now() + claude::ANSWER_TIMEOUT + std::time::Duration::from_secs(3);
+    let start = transcript
+        .and_then(|t| std::fs::metadata(t).ok())
+        .map_or(0, |m| m.len());
+    // Short reads, so the transcript is checked in between. Exiting closes
+    // the socket, which tells Atoll to drop the prompt.
+    stream
+        .set_read_timeout(Some(std::time::Duration::from_millis(500)))
+        .ok()?;
+    let mut reader = BufReader::new(stream);
     let mut answer = String::new();
-    BufReader::new(stream).read_line(&mut answer).ok()?;
-    serde_json::from_str(&answer).ok()
+    loop {
+        match reader.read_line(&mut answer) {
+            Ok(0) => return None,
+            Ok(_) if answer.ends_with('\n') => return serde_json::from_str(&answer).ok(),
+            Ok(_) => {}
+            Err(e)
+                if matches!(
+                    e.kind(),
+                    std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                ) => {}
+            Err(_) => return None,
+        }
+        if std::time::Instant::now() > deadline
+            || transcript.is_some_and(|t| answered_elsewhere(t, start))
+        {
+            return None;
+        }
+    }
 }
 
 /// Claude Code's hook output for the user's answer.
@@ -209,6 +279,22 @@ fn decision(request: &Request, hook: &Value, reply: Reply) -> Option<Value> {
                 "decision": { "behavior": "deny", "message": "Denied from the Atoll notch" }
             }
         })),
+        // Claude reads the message as the reason, so it can change course.
+        (Request::Permission { .. }, Reply::DenyWith(message)) => Some(json!({
+            "hookSpecificOutput": {
+                "hookEventName": "PermissionRequest",
+                "decision": { "behavior": "deny", "message": message }
+            }
+        })),
+        (Request::Permission { .. }, Reply::AllowAlways) => {
+            let rule = hook["permission_suggestions"].get(0)?.clone();
+            Some(json!({
+                "hookSpecificOutput": {
+                    "hookEventName": "PermissionRequest",
+                    "decision": { "behavior": "allow", "updatedPermissions": [rule] }
+                }
+            }))
+        }
         (Request::Question { .. }, Reply::Answers(answers)) => {
             // updatedInput replaces the whole input: keep the original
             // questions and add the answers.
@@ -266,7 +352,70 @@ mod tests {
             tool: "Bash".into(),
             summary: "ls".into(),
             project: "atoll".into(),
+            always: None,
         }
+    }
+
+    fn suggestion(destination: &str) -> Value {
+        json!([{"type": "addRules", "behavior": "allow", "destination": destination,
+                "rules": [{"toolName": "Bash", "ruleContent": "npm run lint"}]}])
+    }
+
+    #[test]
+    fn always_allow_saves_the_suggested_rule() {
+        let s = suggestion("localSettings");
+        assert_eq!(
+            always_label(&s).as_deref(),
+            Some("npm run lint · this project")
+        );
+        assert_eq!(always_label(&json!(null)), None);
+        let out = decision(
+            &permission(),
+            &json!({"permission_suggestions": s}),
+            Reply::AllowAlways,
+        )
+        .unwrap();
+        let d = &out["hookSpecificOutput"]["decision"];
+        assert_eq!(d["behavior"], "allow");
+        assert_eq!(
+            d["updatedPermissions"][0]["rules"][0]["ruleContent"],
+            "npm run lint"
+        );
+        // Nothing suggested: no rule to save, so no answer (Claude asks).
+        assert!(decision(&permission(), &json!({}), Reply::AllowAlways).is_none());
+    }
+
+    #[test]
+    fn deny_with_message_reaches_claude() {
+        let out = decision(
+            &permission(),
+            &json!({}),
+            Reply::DenyWith("use pnpm".into()),
+        )
+        .unwrap();
+        let d = &out["hookSpecificOutput"]["decision"];
+        assert_eq!(d["behavior"], "deny");
+        assert_eq!(d["message"], "use pnpm");
+    }
+
+    #[test]
+    fn only_user_or_assistant_entries_mean_answered() {
+        let path = std::env::temp_dir().join(format!("atoll-transcript-{}", std::process::id()));
+        std::fs::write(&path, "{\"type\":\"assistant\"}\n").unwrap();
+        let start = std::fs::metadata(&path).unwrap().len();
+        assert!(!answered_elsewhere(&path, start));
+        let mut f = std::fs::OpenOptions::new()
+            .append(true)
+            .open(&path)
+            .unwrap();
+        writeln!(f, "{{\"type\":\"system\"}}").unwrap();
+        assert!(
+            !answered_elsewhere(&path, start),
+            "progress notes don't count"
+        );
+        writeln!(f, "{{\"type\":\"user\",\"message\":{{}}}}").unwrap();
+        assert!(answered_elsewhere(&path, start));
+        let _ = std::fs::remove_file(path);
     }
 
     #[test]

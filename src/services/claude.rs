@@ -36,6 +36,10 @@ pub enum Request {
         /// What it will do, e.g. the shell command or the file path.
         summary: String,
         project: String,
+        /// The rule "Always allow" would save, as Claude Code offers it
+        /// (e.g. "npm run lint · this project"); `None` when it offers none.
+        #[serde(default)]
+        always: Option<String>,
     },
     /// AskUserQuestion: one or more questions with options.
     Question {
@@ -77,7 +81,11 @@ pub struct Choice {
 #[serde(rename_all = "snake_case")]
 pub enum Reply {
     Allow,
+    /// Allow, and save the rule Claude Code suggested.
+    AllowAlways,
     Deny,
+    /// Deny, telling Claude why or what to do instead.
+    DenyWith(String),
     /// question text -> chosen label(s), comma-separated for multi-select.
     Answers(std::collections::HashMap<String, String>),
 }
