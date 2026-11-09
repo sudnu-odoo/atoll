@@ -95,7 +95,7 @@ window.island {
 /* Every card's reserved slot for the shared rows: the clock (over the
    GNOME bar) and the tabs below it. Card content starts under both. */
 .card-top {
-  min-height: 56px;
+  min-height: 48px;
 }
 /* A card's own actions (Clear): a slim row at the top of its content. */
 .card-actions {
