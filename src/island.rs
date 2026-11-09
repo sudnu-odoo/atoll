@@ -38,6 +38,8 @@ pub const COLLAPSED: (f64, f64) = (250.0, 32.0);
 const TOP_ROW_Y: i32 = 16;
 /// Height of that row (tabs, gear, clock all share it).
 const TOP_ROW_H: i32 = 26;
+/// Top of the ‹ › page arrows, the same on every card.
+const ARROWS_Y: i32 = 74;
 /// The tab strip starts this far left of the notch's center, on every card.
 /// Centering it instead would shift every tab whenever the named tab's
 /// label changes length.
@@ -75,13 +77,15 @@ const MUSIC_GONE_GRACE: std::time::Duration = std::time::Duration::from_secs(2);
 pub const EXPANDED_MUSIC: (f64, f64) = (568.0, 222.0);
 pub const EXPANDED_LYRICS: (f64, f64) = (868.0, 222.0);
 pub const EXPANDED_WATER: (f64, f64) = (568.0, 206.0);
-pub const EXPANDED_IDLE: (f64, f64) = (568.0, 162.0);
+pub const EXPANDED_IDLE: (f64, f64) = (568.0, 140.0);
 pub const EXPANDED_TODO: (f64, f64) = (568.0, 206.0);
 /// Wider than the rest: month grid and day agenda side by side.
 pub const EXPANDED_CALENDAR: (f64, f64) = (680.0, 252.0);
 pub const EXPANDED_SHELF: (f64, f64) = (568.0, 206.0);
 pub const EXPANDED_CONTROLS: (f64, f64) = (568.0, 206.0);
 pub const EXPANDED_NOTIFICATIONS: (f64, f64) = (568.0, 260.0);
+/// No notifications: as short as the other cards.
+pub const EXPANDED_NOTIFICATIONS_EMPTY: (f64, f64) = (568.0, 206.0);
 /// Claude prompts: fixed width, height grows with the content up to
 /// CLAUDE_MAX_H (long questions, many options).
 pub const EXPANDED_CLAUDE: (f64, f64) = (600.0, 206.0);
@@ -199,6 +203,8 @@ pub struct Island {
     /// The tab buttons, and the cards they were built for.
     #[allow(clippy::type_complexity)]
     tabs: RefCell<(Vec<&'static str>, Vec<(gtk::Button, gtk::Revealer)>)>,
+    /// Sizes the notifications card (short when there's nothing).
+    notifications_empty: Cell<bool>,
     /// Direction of the card switch in progress, for the slide.
     slide: Cell<Option<StackTransitionType>>,
     /// The island itself, for the tab buttons (rebuilt on every page).
@@ -481,6 +487,7 @@ impl Island {
             pill,
             pill_tick: RefCell::new(None),
             tabs: RefCell::default(),
+            notifications_empty: Cell::new(true),
             slide: Cell::new(None),
             me: RefCell::new(std::rc::Weak::new()),
             gear,
@@ -583,8 +590,7 @@ impl Island {
                                 },
                                 claude::Choice {
                                     label: "Add a fallback".into(),
-                                    description: "Try a second source when LRCLIB has none"
-                                        .into(),
+                                    description: "Try a second source when LRCLIB has none".into(),
                                 },
                             ],
                             multi_select: false,
@@ -755,8 +761,19 @@ impl Island {
         self.calendar.tick();
     }
 
-    pub fn on_notifications(&self, items: &[crate::services::notifications::Notification]) {
+    pub fn on_notifications(
+        self: &Rc<Self>,
+        items: &[crate::services::notifications::Notification],
+    ) {
         self.notifications.update(items);
+        let was = self.notifications_empty.replace(items.is_empty());
+        // Open on this card and it just changed size: refit the notch.
+        if was != items.is_empty()
+            && self.state.get() == State::Expanded
+            && self.expanded_page().0 == "notifications"
+        {
+            self.expand();
+        }
     }
 
     pub fn on_controls(&self, state: &crate::services::controls::State) {
@@ -984,7 +1001,14 @@ impl Island {
                 "music" if self.has_music.get() => ("music", EXPANDED_MUSIC),
                 "music" => ("idle", EXPANDED_IDLE),
                 "controls" if f.controls => ("controls", EXPANDED_CONTROLS),
-                "notifications" if f.notifications => ("notifications", EXPANDED_NOTIFICATIONS),
+                "notifications" if f.notifications => (
+                    "notifications",
+                    if self.notifications_empty.get() {
+                        EXPANDED_NOTIFICATIONS_EMPTY
+                    } else {
+                        EXPANDED_NOTIFICATIONS
+                    },
+                ),
                 "calendar" if f.calendar => ("calendar", EXPANDED_CALENDAR),
                 "water" if f.water => ("water", EXPANDED_WATER),
                 "todo" if f.todo => ("todo", EXPANDED_TODO),
@@ -1088,11 +1112,11 @@ impl Island {
         if !show {
             return;
         }
-        let (w, h) = self.expanded_page().1;
+        let w = self.expanded_page().1 .0;
         let inset = (WIN_W - w as i32) / 2 + 8;
-        // Vertically centered on the part of the card below the GNOME bar,
-        // where clicks reach us.
-        let top = (BAR_H + h as i32) / 2 - 14;
+        // One height on every card (centering on the content made them jump
+        // as cards changed size); below the GNOME bar, where clicks reach us.
+        let top = ARROWS_Y;
         self.prev.set_margin_start(inset);
         self.prev.set_margin_top(top);
         self.next.set_margin_end(inset);
@@ -1393,7 +1417,25 @@ impl Island {
                 }
             }
             State::Peek => self.show_page("peek", true),
-            State::Claude => self.show_page("claude", true),
+            State::Claude => {
+                self.show_page("claude", true);
+                // Measured before GTK had styled the card, the first height
+                // can be far too generous; once it's on screen, tighten.
+                let weak = Rc::downgrade(self);
+                glib::idle_add_local_once(move || {
+                    let Some(i) = weak.upgrade() else { return };
+                    if i.state.get() != State::Claude {
+                        return;
+                    }
+                    let h = f64::from(i.claude.natural_height())
+                        .clamp(EXPANDED_CLAUDE.1 * 0.75, CLAUDE_MAX_H);
+                    if (h - i.size.get().1).abs() > 2.0 {
+                        let size = (EXPANDED_CLAUDE.0, h);
+                        i.set_bounds(size);
+                        i.animate_to(size);
+                    }
+                });
+            }
             State::Expanded => {
                 let (page, _) = self.expanded_page();
                 match self.slide.take() {

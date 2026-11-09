@@ -31,6 +31,8 @@ pub struct ClaudeCard {
     pub root: gtk::Box,
     project: Label,
     countdown: Label,
+    ring: gtk::DrawingArea,
+    fraction: Rc<Cell<f64>>,
     body: gtk::Box,
     answers: async_channel::Sender<Reply>,
     /// Questions still to ask, and answers collected so far.
@@ -67,8 +69,10 @@ impl ClaudeCard {
         );
         // Project names can be long ("19.0-sejatibrands-6634496-sudnu");
         // they shorten rather than widen the card.
+        // The project's own name, as written (long uppercase paths were
+        // hard to scan).
         let project = Label::builder()
-            .css_classes(["caps", "muted"])
+            .css_classes(["claude-project", "muted"])
             .ellipsize(gtk::pango::EllipsizeMode::End)
             .xalign(0.0)
             .hexpand(true)
@@ -76,7 +80,18 @@ impl ClaudeCard {
         super::full_text_on_hover(&project);
         title.append(&project);
         title.set_hexpand(true);
-        let countdown = Label::builder().css_classes(["time"]).build();
+        let countdown = Label::builder().css_classes(["time", "muted"]).build();
+        // Time left, at a glance: a ring that empties as the prompt waits.
+        let fraction = Rc::new(Cell::new(1.0));
+        let ring = gtk::DrawingArea::builder()
+            .content_width(14)
+            .content_height(14)
+            .valign(Align::Center)
+            .build();
+        let f = fraction.clone();
+        ring.set_draw_func(move |_, cr, w, h| {
+            super::widgets::draw_ring(cr, f64::from(w), f64::from(h), f.get());
+        });
         // A plain box, not a CenterBox: a CenterBox asks for twice its widest
         // side, which made the card wider than the notch.
         let top = gtk::Box::builder()
@@ -84,6 +99,7 @@ impl ClaudeCard {
             .spacing(12)
             .build();
         top.append(&title);
+        top.append(&ring);
         top.append(&countdown);
 
         let body = gtk::Box::builder()
@@ -106,6 +122,8 @@ impl ClaudeCard {
             root,
             project,
             countdown,
+            ring,
+            fraction,
             body,
             answers,
             pending: RefCell::default(),
@@ -137,13 +155,11 @@ impl ClaudeCard {
                 project,
                 always,
             } => {
-                self.project
-                    .set_label(&format!("· {}", project.to_uppercase()));
+                self.project.set_label(&format!("· {project}"));
                 self.permission(tool, summary, always.as_deref());
             }
             Request::Question { questions, project } => {
-                self.project
-                    .set_label(&format!("· {}", project.to_uppercase()));
+                self.project.set_label(&format!("· {project}"));
                 self.collected.replace(HashMap::new());
                 let mut queue = questions.clone();
                 queue.reverse(); // pop() takes them in order
@@ -356,14 +372,16 @@ impl ClaudeCard {
             return;
         };
 
+        // The question's topic joins the header line instead of a chip.
         if !q.header.is_empty() {
-            self.body.append(
-                &Label::builder()
-                    .label(&q.header)
-                    .css_classes(["chip"])
-                    .halign(Align::Start)
-                    .build(),
-            );
+            let base = self
+                .project
+                .label()
+                .split(" · ")
+                .take(1)
+                .collect::<Vec<_>>()
+                .join(" · ");
+            self.project.set_label(&format!("{base} · {}", q.header));
         }
         self.body.append(
             &Label::builder()
@@ -533,6 +551,8 @@ impl ClaudeCard {
     fn start_countdown(self: &Rc<Self>) {
         self.left.set(ANSWER_TIMEOUT.as_secs());
         self.countdown.set_label(&format!("{}s", self.left.get()));
+        self.fraction.set(1.0);
+        self.ring.queue_draw();
         let weak = Rc::downgrade(self);
         let id = glib::timeout_add_local(Duration::from_secs(1), move || {
             let Some(card) = weak.upgrade() else {
@@ -541,6 +561,9 @@ impl ClaudeCard {
             let left = card.left.get().saturating_sub(1);
             card.left.set(left);
             card.countdown.set_label(&format!("{left}s"));
+            card.fraction
+                .set(left as f64 / ANSWER_TIMEOUT.as_secs().max(1) as f64);
+            card.ring.queue_draw();
             if left == 0 {
                 card.ticker.take();
                 return glib::ControlFlow::Break;

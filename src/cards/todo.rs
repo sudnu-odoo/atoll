@@ -46,7 +46,7 @@ pub struct TodoCard {
     edit_toggle: gtk::Button,
     panel: gtk::Stack,
     list: gtk::Box,
-    empty: Label,
+    empty: gtk::Box,
     form: Form,
     commands: async_channel::Sender<Command>,
     on_typing: Rc<dyn Fn(Typing)>,
@@ -81,8 +81,8 @@ impl TodoCard {
             .halign(Align::Center)
             .build();
         let caption = Label::builder()
-            .label("Task Done Today")
-            .css_classes(["subtitle", "todo-caption"])
+            .label("DONE TODAY")
+            .css_classes(["caps", "lavender", "todo-caption"])
             .halign(Align::Center)
             .build();
         let add = control_button(&["todo-action", "add"], None);
@@ -110,12 +110,7 @@ impl TodoCard {
             .spacing(6)
             .css_classes(["todo-list"])
             .build();
-        let empty = Label::builder()
-            .label("Nothing to do yet")
-            .css_classes(["subtitle"])
-            .valign(Align::Center)
-            .vexpand(true)
-            .build();
+        let empty = super::empty_state("atoll-tasks-symbolic", "Nothing to do yet");
         // A visible scrollbar, like the reference; scrolling here doesn't
         // flip cards.
         let scroller = gtk::ScrolledWindow::builder()
@@ -333,6 +328,8 @@ impl TodoCard {
             self.list.remove(&child);
         }
         let tasks = self.tasks.borrow().clone();
+        // Nothing to edit in an empty list.
+        self.edit_toggle.set_sensitive(!tasks.is_empty());
         if tasks.is_empty() {
             self.list.append(&self.empty);
             return;
@@ -412,10 +409,14 @@ impl TodoCard {
 fn build_form() -> Form {
     let name = gtk::Entry::builder()
         .placeholder_text("Task name")
-        .secondary_icon_name("atoll-close-symbolic")
         .secondary_icon_tooltip_text("Clear")
         .css_classes(["todo-field"])
         .build();
+    // The ✕ only once there's something to clear.
+    name.connect_changed(|e| {
+        let icon = (!e.text().is_empty()).then_some("atoll-close-symbolic");
+        e.set_secondary_icon_name(icon);
+    });
     name.connect_icon_press(|e, pos| {
         if pos == gtk::EntryIconPosition::Secondary {
             e.set_text("");

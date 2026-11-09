@@ -82,6 +82,23 @@ pub fn live_clock(label: &gtk::Label, format: &'static str) {
     });
 }
 
+/// The one empty-state pattern: an icon over a single muted line.
+pub fn empty_state(icon: &str, text: &str) -> gtk::Box {
+    use gtk::prelude::*;
+    let b = gtk::Box::builder()
+        .orientation(gtk::Orientation::Vertical)
+        .spacing(8)
+        .css_classes(["empty-state"])
+        .halign(gtk::Align::Center)
+        .valign(gtk::Align::Center)
+        .vexpand(true)
+        .hexpand(true)
+        .build();
+    b.append(&gtk::Image::from_icon_name(icon));
+    b.append(&gtk::Label::new(Some(text)));
+    b
+}
+
 /// Shows the label's full text on hover, but only while it's cut short
 /// with "…"; text that fits needs no tooltip.
 pub fn full_text_on_hover(label: &gtk::Label) {

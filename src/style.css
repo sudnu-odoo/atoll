@@ -60,11 +60,19 @@ window.island {
 .idle-card {
   padding: 16px 52px 14px;
 }
+/* The one display style for a big number (clock, to-do count, water). */
+.big-clock,
+.todo-count,
+.water-amount {
+  font-family: "JetBrainsMono Nerd Font Mono";
+  font-size: 30px;
+  font-weight: 300;
+}
 .big-clock {
   /* Air between the shared top row (tabs) and the time. */
   margin-top: 12px;
   font-family: "JetBrainsMono Nerd Font Mono";
-  font-size: 26px;
+  font-size: 30px;
   font-weight: 300;
   letter-spacing: 2px;
 }
@@ -104,7 +112,6 @@ window.island {
 }
 .subtitle {
   font-size: 13px;
-  font-weight: 300;
   color: @lavender;
 }
 .bar {
@@ -159,10 +166,6 @@ window.island {
   -gtk-icon-size: 13px;
   color: @lavender;
 }
-.water-amount {
-  font-size: 34px;
-  font-weight: 700;
-}
 .water-goal {
   font-size: 15px;
   color: @muted;
@@ -170,19 +173,29 @@ window.island {
 .water-actions {
   margin-top: 6px;
 }
+/* Three button tiers, the same on every card:
+   primary   solid pink, dark text (Allow, Save, Done, Send)
+   secondary raised pill (Deny, Reply, Cancel, Always allow)
+   tertiary  icon + lavender text, no fill (Add Task, Edit Task) */
 button.control.pill {
   min-height: 34px;
   padding: 0 16px;
   border-radius: 999px;
   -gtk-icon-size: 15px;
   font-weight: 500;
+  background-color: alpha(@bg_raised, 0.7);
+  color: @text;
+}
+button.control.pill:hover {
+  background-color: @bg_raised;
 }
 button.control.primary-pill {
-  background-color: alpha(@pink, 0.22);
-  color: @pink;
+  background-color: @pink;
+  color: @bg;
+  font-weight: 700;
 }
 button.control.primary-pill:hover {
-  background-color: alpha(@pink, 0.32);
+  background-color: shade(@pink, 1.08);
 }
 button.control.primary-pill label,
 button.control.primary-pill image {
@@ -215,7 +228,7 @@ button.control.tab {
   border-radius: 999px;
   -gtk-icon-size: 14px;
   background-color: transparent;
-  color: alpha(@lavender, 0.55);
+  color: alpha(@lavender, 0.8);
   transition: background-color 150ms ease-out, color 150ms ease-out;
 }
 button.control.tab:hover {
@@ -411,8 +424,11 @@ window.settings button.preset {
   -gtk-icon-size: 13px;
   color: @pink;
 }
+.claude-project {
+  font-size: 12px;
+}
 .claude-title {
-  font-size: 16px;
+  font-size: 15px;
   font-weight: 500;
 }
 .chip {
@@ -466,7 +482,7 @@ button.option-row:checked .option-label {
   color: @pink;
 }
 .option-description {
-  font-size: 12px;
+  font-size: 13px;
   color: @muted;
 }
 
@@ -482,10 +498,6 @@ button.option-row:checked .option-label {
   font-size: 15px;
   font-weight: 700;
 }
-.todo-count {
-  font-size: 46px;
-  font-weight: 700;
-}
 .todo-caption {
   margin-top: 2px;
 }
@@ -494,10 +506,12 @@ button.option-row:checked .option-label {
 }
 button.control.todo-action {
   min-height: 28px;
-  padding: 0 4px;
+  padding: 0 8px;
   border-radius: 8px;
-  -gtk-icon-size: 16px;
-  color: @text;
+  -gtk-icon-size: 15px;
+  font-size: 13px;
+  font-weight: 500;
+  color: @lavender;
 }
 button.control.todo-action.add image {
   color: @pink;
@@ -590,6 +604,10 @@ entry.claude-entry:focus-within {
 entry.todo-field image {
   color: @muted;
 }
+/* Time placeholders must not read as a time already typed in. */
+entry.todo-digits > text > placeholder {
+  color: alpha(@muted, 0.55);
+}
 .todo-time-field {
   padding: 0 10px;
 }
@@ -671,11 +689,17 @@ window.settings entry {
   font-size: 13px;
   font-weight: 700;
 }
+/* Month ‹ ›: bare chevrons, so they don't read as the card arrows
+   (which are filled circles). */
 button.control.cal-nav {
-  min-width: 22px;
-  min-height: 22px;
-  -gtk-icon-size: 16px;
+  min-width: 24px;
+  min-height: 24px;
+  -gtk-icon-size: 14px;
   color: @lavender;
+  background: none;
+}
+button.control.cal-nav:hover {
+  background-color: alpha(@bg_raised, 0.7);
 }
 .cal-weekday {
   font-size: 11px;
@@ -698,13 +722,13 @@ button.cal-day:hover {
   background-color: alpha(@bg_raised, 0.8);
 }
 button.cal-day.other-month {
-  color: alpha(@muted, 0.7);
+  color: @muted;
 }
 /* Days with events get a small accent dot under the number. */
 .cal-dot {
   min-width: 4px;
   min-height: 4px;
-  margin-top: 1px;
+  margin-top: 2px;
   border-radius: 2px;
 }
 button.cal-day.has-events .cal-dot {
@@ -723,9 +747,7 @@ button.cal-day.selected {
   font-weight: 700;
 }
 .cal-day-title {
-  font-size: 13px;
-  font-weight: 700;
-  color: @lavender;
+  min-height: 22px; /* the month header's height, so both rows align */
 }
 .cal-event {
   padding: 6px 10px;
@@ -797,6 +819,15 @@ overlay:hover > button.control.shelf-remove {
 }
 .shelf-empty {
   padding: 4px 0;
+}
+/* Every empty card: one icon, one line. */
+.empty-state image {
+  -gtk-icon-size: 22px;
+  color: @lavender;
+}
+.empty-state label {
+  font-size: 13px;
+  color: @muted;
 }
 
 /* GTK outlines a widget while a drag hovers it; for the island that's the
@@ -885,7 +916,11 @@ button.qs-item {
   border: none;
   border-radius: 10px;
   box-shadow: none;
-  background-color: alpha(@bg_raised, 0.45);
+  background-color: alpha(@bg_raised, 0.7);
+}
+.qs-lock {
+  -gtk-icon-size: 13px;
+  color: @muted;
 }
 button.qs-item:hover {
   background-color: alpha(@bg_raised, 0.85);

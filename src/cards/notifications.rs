@@ -13,11 +13,14 @@ use crate::services::notifications::Notification;
 
 /// Taller than the other cards' bodies: chat messages need room to read.
 const LIST_H: i32 = 186;
+/// Empty, the card is as short as the others (see `island::pages`).
+const EMPTY_H: i32 = 132;
 
 pub struct NotificationsCard {
     pub root: gtk::Box,
     list: gtk::Box,
-    empty: Label,
+    empty: gtk::Box,
+    scroller: gtk::ScrolledWindow,
     clear: gtk::Button,
     /// `None` clears all, `Some(id)` removes one.
     on_clear: Rc<dyn Fn(Option<u64>)>,
@@ -43,12 +46,7 @@ impl NotificationsCard {
             .orientation(Orientation::Vertical)
             .spacing(6)
             .build();
-        let empty = Label::builder()
-            .label("No notifications")
-            .css_classes(["subtitle"])
-            .valign(Align::Center)
-            .vexpand(true)
-            .build();
+        let empty = super::empty_state("atoll-bell-off-symbolic", "No notifications");
         // Long lists scroll; scrolling here doesn't flip cards.
         let scroller = gtk::ScrolledWindow::builder()
             .hscrollbar_policy(gtk::PolicyType::Never)
@@ -76,6 +74,7 @@ impl NotificationsCard {
             root,
             list,
             empty,
+            scroller: scroller.clone(),
             clear,
             on_clear,
         });
@@ -89,6 +88,14 @@ impl NotificationsCard {
             self.list.remove(&child);
         }
         self.clear.set_visible(!items.is_empty());
+        let (h, card_h) = if items.is_empty() {
+            (EMPTY_H, crate::island::EXPANDED_NOTIFICATIONS_EMPTY.1)
+        } else {
+            (LIST_H, crate::island::EXPANDED_NOTIFICATIONS.1)
+        };
+        self.scroller.set_min_content_height(h);
+        self.scroller.set_max_content_height(h);
+        self.root.set_height_request(card_h as i32);
         if items.is_empty() {
             self.list.append(&self.empty);
             return;

@@ -224,10 +224,6 @@ impl Idle {
         let time = Label::builder().css_classes(["big-clock"]).build();
         live_clock(&time, "%H:%M:%S");
         let date = Label::builder().css_classes(["caps"]).build();
-        let hint = Label::builder()
-            .label("NOTHING PLAYING")
-            .css_classes(["caps", "muted"])
-            .build();
 
         let root = gtk::Box::builder()
             .orientation(Orientation::Vertical)
@@ -240,7 +236,6 @@ impl Idle {
         root.append(&gtk::Box::builder().css_classes(["card-top"]).build());
         root.append(&time);
         root.append(&date);
-        root.append(&hint);
 
         every_minute(move |now: &glib::DateTime| {
             if let Ok(s) = now.format("%A  %d %B") {

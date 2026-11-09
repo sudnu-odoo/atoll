@@ -55,7 +55,7 @@ impl CalendarCard {
         month.append(&grid);
 
         let day_title = Label::builder()
-            .css_classes(["cal-day-title"])
+            .css_classes(["caps", "lavender", "cal-day-title"])
             .xalign(0.0)
             .build();
         let day_list = gtk::Box::builder()
@@ -252,24 +252,20 @@ impl CalendarCard {
         let date = self.selected.get();
         let today = Local::now().date_naive();
         let title = match (date - today).num_days() {
-            0 => format!("Today · {}", date.format("%a %d %b")),
+            // Today is already lit in the grid; only other days say which.
+            0 => date.format("%a %d %b").to_string(),
             1 => format!("Tomorrow · {}", date.format("%a %d %b")),
             -1 => format!("Yesterday · {}", date.format("%a %d %b")),
             _ => date.format("%A %d %B").to_string(),
         };
-        self.day_title.set_label(&title);
+        self.day_title.set_label(&title.to_uppercase());
         while let Some(child) = self.day_list.first_child() {
             self.day_list.remove(&child);
         }
         let by_day = self.by_day.borrow();
         let Some(events) = by_day.get(&date).filter(|e| !e.is_empty()) else {
-            self.day_list.append(
-                &Label::builder()
-                    .label("No events")
-                    .css_classes(["subtitle"])
-                    .xalign(0.0)
-                    .build(),
-            );
+            self.day_list
+                .append(&super::empty_state("atoll-event-symbolic", "No events"));
             return;
         };
         let now = glib::DateTime::now_local().map_or(0, |t| t.to_unix());

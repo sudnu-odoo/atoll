@@ -73,7 +73,7 @@ impl ControlsCard {
         let sliders = gtk::Box::builder()
             .orientation(Orientation::Vertical)
             .spacing(14)
-            .width_request(176)
+            .width_request(180)
             .valign(Align::Center)
             .build();
         sliders.append(&volume.row);
@@ -83,8 +83,10 @@ impl ControlsCard {
         let bluetooth = tile("atoll-bluetooth-symbolic", "Bluetooth", true);
         let airplane = tile("atoll-airplane-symbolic", "Airplane", false);
         let power = tile("atoll-speed-symbolic", "Power Mode", true);
-        let lock = tile("atoll-lock-symbolic", "Lock", false);
-        lock.subtitle.set_label("Lock screen");
+        // An action, not a toggle: just its name, across the last row so the
+        // grid has no gap.
+        let lock = tile("atoll-lock-symbolic", "Lock screen", false);
+        lock.subtitle.set_visible(false);
         let grid = gtk::Grid::builder()
             .column_spacing(8)
             .row_spacing(6)
@@ -96,7 +98,7 @@ impl ControlsCard {
         grid.attach(&bluetooth.root, 1, 0, 1, 1);
         grid.attach(&airplane.root, 0, 1, 1, 1);
         grid.attach(&power.root, 1, 1, 1, 1);
-        grid.attach(&lock.root, 0, 2, 1, 1);
+        grid.attach(&lock.root, 0, 2, 2, 1);
         let main = gtk::Box::builder().spacing(20).build();
         main.append(&sliders);
         main.append(&grid);
@@ -105,7 +107,7 @@ impl ControlsCard {
         let back = control_button(&["cal-nav"], Some("atoll-left-symbolic"));
         back.set_tooltip_text(Some("Back"));
         let menu_title = Label::builder()
-            .css_classes(["cal-month"])
+            .css_classes(["caps", "lavender"])
             .xalign(0.0)
             .build();
         let header = gtk::Box::builder().spacing(8).build();
@@ -340,10 +342,10 @@ impl ControlsCard {
 
     fn open_menu(&self, menu: Menu) {
         self.menu_title.set_label(match menu {
-            Menu::Wifi => "Wi-Fi",
-            Menu::Bluetooth => "Bluetooth",
-            Menu::Sound => "Sound Output",
-            Menu::Power => "Power Mode",
+            Menu::Wifi => "WI-FI",
+            Menu::Bluetooth => "BLUETOOTH",
+            Menu::Sound => "SOUND OUTPUT",
+            Menu::Power => "POWER MODE",
         });
         while let Some(child) = self.menu_list.first_child() {
             self.menu_list.remove(&child);
@@ -390,11 +392,10 @@ impl ControlsCard {
             } else {
                 "atoll-volume-symbolic"
             });
-            self.volume.value.set_label(&if muted {
-                "Muted".to_owned()
-            } else {
-                percent(level)
-            });
+            // The crossed-out speaker already says "muted"; the number stays,
+            // so the value column can be narrow.
+            self.volume.value.set_label(&percent(level));
+            self.volume.value.set_opacity(if muted { 0.5 } else { 1.0 });
             if !self.adjusting.get() {
                 self.volume.scale.set_value(level);
             }
@@ -510,15 +511,22 @@ impl ControlsCard {
                     .css_classes(["cal-event-title"])
                     .build(),
             );
+            let shown = shown_detail(menu, &item.detail);
             let detail = Label::builder()
-                .label(&item.detail)
+                .label(&shown)
                 .xalign(0.0)
                 .css_classes(["qs-subtitle"])
-                .visible(!item.detail.is_empty())
+                .visible(!shown.is_empty())
                 .build();
             text.append(&detail);
             let content = gtk::Box::builder().spacing(8).build();
             content.append(&text);
+            // Secured networks: a lock, not another word in the line.
+            if menu == Menu::Wifi && item.detail.contains("Secured") {
+                let lock = gtk::Image::from_icon_name("atoll-lock-symbolic");
+                lock.add_css_class("qs-lock");
+                content.append(&lock);
+            }
             let spinner = gtk::Spinner::builder()
                 .visible(false)
                 .css_classes(["qs-spinner"])
@@ -558,6 +566,26 @@ impl ControlsCard {
             self.menu_list.append(&row);
         }
     }
+}
+
+/// The detail line a menu row shows. Wi-Fi rows keep one word: whether
+/// it's connected or saved, else its signal; "Secured" becomes an icon.
+fn shown_detail(menu: Menu, detail: &str) -> String {
+    if menu != Menu::Wifi {
+        return detail.to_owned();
+    }
+    let parts: Vec<&str> = detail.split(" · ").collect();
+    ["Connected", "Saved"]
+        .into_iter()
+        .find(|w| parts.contains(w))
+        .map(str::to_owned)
+        .or_else(|| {
+            parts
+                .iter()
+                .find(|p| p.ends_with('%'))
+                .map(|p| (*p).to_owned())
+        })
+        .unwrap_or_default()
 }
 
 /// What a row says while its pick is in progress; quick picks (sound
@@ -605,12 +633,15 @@ fn tile(icon: &str, title: &str, menu: bool) -> Tile {
             .css_classes(["qs-title"])
             .build(),
     );
+    // Shortened only when the tile is really too narrow; full text on hover.
     let subtitle = Label::builder()
         .xalign(0.0)
         .ellipsize(gtk::pango::EllipsizeMode::End)
-        .max_width_chars(9)
+        .max_width_chars(1)
+        .hexpand(true)
         .css_classes(["qs-subtitle"])
         .build();
+    super::full_text_on_hover(&subtitle);
     text.append(&subtitle);
     let content = gtk::Box::builder().spacing(8).build();
     content.append(&image);
@@ -646,9 +677,11 @@ fn slider(icon: &str, tip: &str, menu: bool) -> Slider {
         .can_focus(false)
         .build();
     scale.set_cursor_from_name(Some("pointer"));
+    // A fixed column, so both values line up whatever they say.
     let value = Label::builder()
         .css_classes(["time", "qs-value"])
         .xalign(1.0)
+        .width_chars(4)
         .build();
     let row = gtk::Box::builder().spacing(6).build();
     row.append(&button);
@@ -658,11 +691,35 @@ fn slider(icon: &str, tip: &str, menu: bool) -> Slider {
         let more = control_button(&["qs-more", "plain"], Some("atoll-right-symbolic"));
         more.set_tooltip_text(Some("Sound output"));
         row.append(&more);
+    } else {
+        // Same room as the › on the other row, so both tracks are as long.
+        let room = control_button(&["qs-more", "plain"], Some("atoll-right-symbolic"));
+        room.set_opacity(0.0);
+        room.set_can_target(false);
+        row.append(&room);
     }
     Slider {
         row,
         icon: button,
         scale,
         value,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn wifi_rows_keep_one_word() {
+        use super::{shown_detail, Menu};
+        assert_eq!(
+            shown_detail(Menu::Wifi, "Connected · 74% · Saved · Secured"),
+            "Connected"
+        );
+        assert_eq!(shown_detail(Menu::Wifi, "60% · Saved · Secured"), "Saved");
+        assert_eq!(shown_detail(Menu::Wifi, "40% · Secured"), "40%");
+        assert_eq!(
+            shown_detail(Menu::Bluetooth, "Not connected"),
+            "Not connected"
+        );
     }
 }

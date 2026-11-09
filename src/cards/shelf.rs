@@ -53,34 +53,7 @@ impl ShelfCard {
             .child(&tiles)
             .build();
 
-        let empty = gtk::Box::builder()
-            .orientation(Orientation::Vertical)
-            .spacing(6)
-            .css_classes(["shelf-empty"])
-            .valign(Align::Center)
-            .halign(Align::Center)
-            .hexpand(true)
-            .vexpand(true)
-            .build();
-        let icon = gtk::Image::from_icon_name("atoll-tray-symbolic");
-        icon.add_css_class("shelf-empty-icon");
-        empty.append(&icon);
-        empty.append(
-            &Label::builder()
-                .label("Drop files here")
-                .css_classes(["claude-title"])
-                .build(),
-        );
-        empty.append(
-            &Label::builder()
-                .label("Drag any file onto the island to keep it handy, then drag it out where you need it")
-                .css_classes(["subtitle"])
-                .wrap(true)
-                .width_chars(44)
-                .max_width_chars(46)
-                .justify(gtk::Justification::Center)
-                .build(),
-        );
+        let empty = super::empty_state("atoll-tray-symbolic", "Drop files here");
 
         let body = gtk::Box::builder().css_classes(["shelf-body"]).build();
         body.append(&empty);
