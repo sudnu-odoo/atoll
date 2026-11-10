@@ -69,7 +69,7 @@ impl ClaudeCard {
                 .css_classes(["caps", "accent"])
                 .build(),
         );
-        // Project names can be long ("19.0-sejatibrands-6634496-sudnu");
+        // Project names can be long ("17.0-my-client-feature-branch");
         // they shorten rather than widen the card.
         // The project's own name, as written (long uppercase paths were
         // hard to scan).

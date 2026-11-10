@@ -579,10 +579,8 @@ impl Island {
                 let request = if page == "claude-permission" {
                     claude::Request::Permission {
                         tool: "Bash".into(),
-                        summary: "mv loyalty_points_on_payment sejatibrand_loyalty_points && \
-                                  grep -rn loyalty_points_on_payment ."
-                            .into(),
-                        project: "19.0-sejatibrands-6634496-sudnu".into(),
+                        summary: "mv old_module new_module && grep -rn old_module .".into(),
+                        project: "my-project".into(),
                         always: Some("mv:* · this project".into()),
                     }
                 } else {

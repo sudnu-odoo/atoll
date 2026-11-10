@@ -613,12 +613,12 @@ mod tests {
         let all_day = ev("DTSTART;VALUE=DATE:20261022\r\nSUMMARY:Holiday");
         let cancelled =
             ev("DTSTART:20261022T080000Z\r\nSTATUS:CANCELLED\r\nSUMMARY:x").replace("u1", "u2");
-        let declined = ev("DTSTART:20261022T090000Z\r\nATTENDEE;CN=Me;PARTSTAT=DECLINED:mailto:me@odoo.com\r\nSUMMARY:y").replace("u1", "u3");
+        let declined = ev("DTSTART:20261022T090000Z\r\nATTENDEE;CN=Me;PARTSTAT=DECLINED:mailto:me@example.com\r\nSUMMARY:y").replace("u1", "u3");
         let m = expand(
             &[all_day, cancelled, declined],
             day(0),
             day(23),
-            Some("me@odoo.com"),
+            Some("me@example.com"),
         );
         assert_eq!(m.len(), 1);
         assert!(m[0].all_day);
