@@ -6,7 +6,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use gtk::prelude::*;
-use gtk::{gdk, glib, Align, Application, Label, Orientation};
+use gtk::{gdk, gio, glib, Align, Application, Label, Orientation};
 
 use crate::config::{self, Config};
 
@@ -70,6 +70,15 @@ pub fn open(
             ),
             show_on_row(&state, &on_change),
             bridge_row(),
+            updates_row(),
+            switch(
+                &state,
+                &on_change,
+                "Check for updates automatically",
+                "Once a day; a peek says when a new version is out",
+                |c| !c.no_update_checks,
+                |c, v| c.no_update_checks = !v,
+            ),
         ],
     ));
     content.append(&features_section(&state, &on_change));
@@ -135,6 +144,108 @@ fn section(title: &str, rows: &[gtk::Widget]) -> gtk::Box {
     }
     b.append(&card);
     b
+}
+
+/// This version, a check for a newer one, what's new in it, and Update
+/// (download + the system's password prompt + restart).
+fn updates_row() -> gtk::Widget {
+    use crate::update::{self, Status};
+    let button = gtk::Button::builder()
+        .label("Check now")
+        .valign(Align::Center)
+        .build();
+    let widget = row(
+        "Updates",
+        &format!("Atoll {} · not checked yet", update::VERSION),
+        &button,
+    );
+    let subtitle = widget
+        .first_child()
+        .and_then(|text| text.last_child())
+        .and_downcast::<Label>();
+    // What changed, under the row, once a newer version is found.
+    let notes = Label::builder()
+        .css_classes(["settings-hint"])
+        .xalign(0.0)
+        .wrap(true)
+        .selectable(true)
+        .visible(false)
+        .build();
+    let column = gtk::Box::builder()
+        .orientation(Orientation::Vertical)
+        .spacing(6)
+        .build();
+    column.append(&widget);
+    column.append(&notes);
+
+    let found: Rc<RefCell<Option<update::Release>>> = Rc::default();
+    let say = move |text: &str| {
+        if let Some(l) = &subtitle {
+            l.set_label(text);
+        }
+    };
+    let say = Rc::new(say);
+    button.connect_clicked(move |button| {
+        let (button, notes, found, say) =
+            (button.clone(), notes.clone(), found.clone(), say.clone());
+        button.set_sensitive(false);
+        let pending = found.borrow().clone();
+        glib::spawn_future_local(async move {
+            match pending {
+                // Found earlier: this click installs it.
+                Some(release) => {
+                    say(&format!("Installing Atoll {}…", release.version));
+                    let r = release.clone();
+                    match gio::spawn_blocking(move || update::install(&r)).await {
+                        Ok(Ok(())) => {
+                            say("Installed · restarting Atoll");
+                            update::restart_after_quit();
+                            if let Some(app) = gio::Application::default() {
+                                app.quit();
+                            }
+                        }
+                        Ok(Err(e)) => {
+                            say(&format!("Update {}: {e}", release.version));
+                            button.set_sensitive(true);
+                        }
+                        Err(_) => button.set_sensitive(true),
+                    }
+                }
+                None => {
+                    say("Checking…");
+                    match gio::spawn_blocking(update::check).await {
+                        Ok(Status::UpToDate) => {
+                            say(&format!("Atoll {} · up to date", update::VERSION));
+                            button.set_label("Check again");
+                        }
+                        Ok(Status::Available(r)) => {
+                            say(&format!(
+                                "Atoll {} available (you have {})",
+                                r.version,
+                                update::VERSION
+                            ));
+                            notes.set_label(&if r.notes.is_empty() {
+                                "No notes for this release.".to_owned()
+                            } else {
+                                format!("What's new in {}:\n{}", r.version, r.notes)
+                            });
+                            notes.set_visible(true);
+                            button.set_label("Update");
+                            button.add_css_class("suggested-action");
+                            found.replace(Some(r));
+                        }
+                        Ok(Status::Failed(e)) => {
+                            tracing::warn!("update check failed: {e}");
+                            say("Couldn't check (offline?)");
+                        }
+                        Err(_) => say("Couldn't check"),
+                    }
+                    button.set_sensitive(true);
+                }
+            }
+        });
+    });
+    column.upcast()
 }
 
 /// Which monitors get a notch: the main one (with GNOME's top bar), all, or

@@ -14,13 +14,15 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 NAME=atoll
-VERSION=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
+# CI passes the release version; local builds use Cargo.toml's.
+VERSION=${ATOLL_VERSION:-$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)}
 ARCH=$(dpkg --print-architecture)
 EXT_UUID=atoll-bridge@atoll.dev
 OUT=target/debian
 ROOT="$OUT/${NAME}_${VERSION}_${ARCH}"
 
-cargo build --release
+# Stamped into the binary, so Atoll knows which version it is (updates).
+ATOLL_VERSION=$VERSION cargo build --release
 
 rm -rf "$ROOT"
 install -Dm755 target/release/atoll "$ROOT/usr/bin/atoll"

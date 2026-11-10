@@ -27,6 +27,8 @@ struct Hub {
     islands: RefCell<HashMap<String, (Rc<Island>, ApplicationWindow)>>,
     deps: RefCell<island::Deps>,
     config: RefCell<Config>,
+    /// The newest version a peek has announced (announced once).
+    update_told: RefCell<Option<String>>,
     water: RefCell<Option<Rc<water::Water>>>,
     todo: RefCell<Option<Rc<todo::Todo>>>,
     shelf: RefCell<Option<Rc<shelf::Shelf>>>,
@@ -118,6 +120,7 @@ pub fn build(app: &Application) {
     bluez::spawn(bt_tx);
 
     let hub = Rc::new(Hub {
+        update_told: RefCell::new(None),
         app: app.clone(),
         islands: RefCell::default(),
         deps: RefCell::new(island::Deps {
@@ -158,6 +161,21 @@ pub fn build(app: &Application) {
         claude_watch: RefCell::default(),
     });
     HUB.with(|h| h.replace(Some(hub.clone())));
+    // A minute after start (the network may still be coming up), then daily.
+    let weak = Rc::downgrade(&hub);
+    glib::timeout_add_local_once(Duration::from_secs(60), move || {
+        if let Some(hub) = weak.upgrade() {
+            hub.check_updates();
+            let weak = Rc::downgrade(&hub);
+            glib::timeout_add_local(Duration::from_secs(24 * 3600), move || {
+                let Some(hub) = weak.upgrade() else {
+                    return glib::ControlFlow::Break;
+                };
+                hub.check_updates();
+                glib::ControlFlow::Continue
+            });
+        }
+    });
     // GNOME switched between light and dark: follow, if set to System.
     let weak = Rc::downgrade(&hub);
     theme::watch_system(move || {
@@ -536,6 +554,32 @@ impl Hub {
             }
         });
         self.settings.replace(Some(window.downgrade()));
+    }
+
+    /// Looks for a newer release; a peek says so, once per version. The
+    /// Settings window does its own checks (and the installing).
+    fn check_updates(self: &Rc<Self>) {
+        if self.config.borrow().no_update_checks || crate::preview::active() {
+            return;
+        }
+        let weak = Rc::downgrade(self);
+        glib::spawn_future_local(async move {
+            let status = gio::spawn_blocking(crate::update::check).await;
+            let (Some(hub), Ok(crate::update::Status::Available(r))) = (weak.upgrade(), status)
+            else {
+                return;
+            };
+            if hub.update_told.replace(Some(r.version.clone())).as_ref() == Some(&r.version) {
+                return;
+            }
+            let peek = Peek {
+                kind: Kind::Notification { icon: None },
+                title: format!("Atoll {} is available", r.version),
+                subtitle: "Update from Atoll's Settings".into(),
+                percent: None,
+            };
+            hub.each(|i| i.on_peek(peek.clone()));
+        });
     }
 
     /// Applies edited settings live and saves them.

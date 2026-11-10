@@ -11,6 +11,10 @@ const FILE: &str = "config.json";
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Config {
+    /// Look for new versions now and then (Settings → General). Stored
+    /// inverted, so files without the key mean on.
+    #[serde(rename = "skip_update_checks")]
+    pub no_update_checks: bool,
     /// Which monitors get a notch.
     pub show_on: ShowOn,
     /// Atoll switched off in Settings: no notch anywhere, GNOME's banners

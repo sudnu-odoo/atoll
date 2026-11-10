@@ -15,6 +15,7 @@ mod shell;
 mod store;
 mod theme;
 mod todo;
+mod update;
 mod water;
 mod window;
 

@@ -2,6 +2,8 @@
 name = "atoll"
 version = "0.1.0"
 edition = "2021"
+# Releases (and Atoll's update check) live here.
+repository = "https://github.com/sudnu-odoo/atoll"
 
 [dependencies]
 async-channel = "2.5.0"
