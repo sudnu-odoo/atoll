@@ -2,4 +2,7 @@
 
 # Editor setup is per machine (paths like ~/.cargo/bin/cargo)
 /.vscode/
-/.claude/skills/ui-ux-pro-max/
+
+# Claude Code: instructions, skills and settings stay local
+/.claude/
+CLAUDE.md
