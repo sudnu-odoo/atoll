@@ -1461,7 +1461,6 @@ impl Island {
             return; // used on the next collapse
         }
         let current = self.size.get().0;
-        self.collapsed.set_width(w.min(current));
         self.set_bounds((w.max(current), COLLAPSED.1));
         self.animate_to(self.collapsed_size());
     }
@@ -1573,6 +1572,12 @@ impl Island {
         };
         self.size.set(size);
         self.notch.queue_draw();
+        // Closed and changing width (song name, lyric lines): the content
+        // follows the outline frame by frame, so its edges glide instead of
+        // snapping at the start or end.
+        if self.state.get() == State::Collapsed && !done {
+            self.collapsed.set_width(size.0);
+        }
         if !done {
             return glib::ControlFlow::Continue;
         }

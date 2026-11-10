@@ -31,7 +31,9 @@ pub struct Collapsed {
     center: Stack,
     song: Label,
     /// The line being sung, while lyrics mode is on and the notch closed.
-    lyric: Label,
+    /// Two labels, alternated, so each new line crossfades in.
+    lyric: [Label; 2],
+    lyric_slot: Cell<usize>,
     lyric_on: Cell<bool>,
     ring: Rc<Ring>,
     meter: Rc<Meter>,
@@ -54,11 +56,13 @@ impl Collapsed {
             .max_width_chars(52)
             .build();
         super::full_text_on_hover(&song);
-        let lyric = Label::builder()
-            .css_classes(["collapsed-song"])
-            .ellipsize(gtk::pango::EllipsizeMode::End)
-            .max_width_chars(80)
-            .build();
+        let lyric: [Label; 2] = std::array::from_fn(|_| {
+            Label::builder()
+                .css_classes(["collapsed-song"])
+                .ellipsize(gtk::pango::EllipsizeMode::End)
+                .max_width_chars(80)
+                .build()
+        });
         let track = TrackCell::default();
         let ring = Ring::new(track.clone(), 16);
         let meter = Meter::new();
@@ -86,7 +90,8 @@ impl Collapsed {
         center.add_named(&time, Some("time"));
         center.add_named(&face, Some("eyes"));
         center.add_named(&song, Some("song"));
-        center.add_named(&lyric, Some("lyric"));
+        center.add_named(&lyric[0], Some("lyric0"));
+        center.add_named(&lyric[1], Some("lyric1"));
         center.set_visible_child_name("time");
 
         let root = gtk::CenterBox::builder()
@@ -103,6 +108,7 @@ impl Collapsed {
             center,
             song,
             lyric,
+            lyric_slot: Cell::new(0),
             lyric_on: Cell::new(false),
             ring,
             meter,
@@ -202,15 +208,24 @@ impl Collapsed {
                         id.remove();
                     }
                 }
-                if self.lyric.label() != text {
-                    self.lyric.set_label(text);
-                    self.center.set_visible_child_name("lyric");
+                let shown = &self.lyric[self.lyric_slot.get()];
+                if shown.label() != text
+                    || self.center.visible_child() != Some(shown.clone().upcast())
+                {
+                    // The other label takes the new line and fades in.
+                    let next = 1 - self.lyric_slot.get();
+                    self.lyric_slot.set(next);
+                    self.lyric[next].set_label(text);
+                    self.center
+                        .set_visible_child_name(if next == 0 { "lyric0" } else { "lyric1" });
                     self.report_width("lyric");
                 }
             }
             None => {
                 if self.lyric_on.replace(false) {
-                    self.lyric.set_label("");
+                    for l in &self.lyric {
+                        l.set_label("");
+                    }
                     self.show_turn("time");
                 }
             }
@@ -251,7 +266,8 @@ impl Collapsed {
                 (f64::from(natural) + SONG_SIDES).clamp(base, SONG_MAX_W)
             }
             "lyric" => {
-                let (_, natural, _, _) = self.lyric.measure(Orientation::Horizontal, -1);
+                let shown = &self.lyric[self.lyric_slot.get()];
+                let (_, natural, _, _) = shown.measure(Orientation::Horizontal, -1);
                 (f64::from(natural) + SONG_SIDES).clamp(base, LYRIC_MAX_W)
             }
             _ => base,
