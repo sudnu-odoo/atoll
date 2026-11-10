@@ -21,6 +21,8 @@ const CROSSFADE_MS: u32 = 350;
 const SONG_SIDES: f64 = 96.0;
 /// Widest the notch grows for a song; longer names end in "…".
 const SONG_MAX_W: f64 = 560.0;
+/// Widest it grows for a lyric line (lyrics mode, notch closed).
+const LYRIC_MAX_W: f64 = 720.0;
 
 type WidthFn = Box<dyn Fn(f64)>;
 
@@ -28,6 +30,9 @@ pub struct Collapsed {
     pub root: gtk::CenterBox,
     center: Stack,
     song: Label,
+    /// The line being sung, while lyrics mode is on and the notch closed.
+    lyric: Label,
+    lyric_on: Cell<bool>,
     ring: Rc<Ring>,
     meter: Rc<Meter>,
     track: TrackCell,
@@ -49,6 +54,11 @@ impl Collapsed {
             .max_width_chars(52)
             .build();
         super::full_text_on_hover(&song);
+        let lyric = Label::builder()
+            .css_classes(["collapsed-song"])
+            .ellipsize(gtk::pango::EllipsizeMode::End)
+            .max_width_chars(80)
+            .build();
         let track = TrackCell::default();
         let ring = Ring::new(track.clone(), 16);
         let meter = Meter::new();
@@ -76,6 +86,7 @@ impl Collapsed {
         center.add_named(&time, Some("time"));
         center.add_named(&face, Some("eyes"));
         center.add_named(&song, Some("song"));
+        center.add_named(&lyric, Some("lyric"));
         center.set_visible_child_name("time");
 
         let root = gtk::CenterBox::builder()
@@ -91,6 +102,8 @@ impl Collapsed {
             root,
             center,
             song,
+            lyric,
+            lyric_on: Cell::new(false),
             ring,
             meter,
             track,
@@ -178,7 +191,36 @@ impl Collapsed {
         Some(order[(i + 1) % order.len()])
     }
 
+    /// Lyrics mode with the notch closed: the line being sung takes the
+    /// center (no turns), and the notch fits its width. `None` hands back
+    /// to the usual turns.
+    pub fn set_lyric(self: &Rc<Self>, line: Option<&str>) {
+        match line {
+            Some(text) => {
+                if !self.lyric_on.replace(true) {
+                    if let Some(id) = self.turn.take() {
+                        id.remove();
+                    }
+                }
+                if self.lyric.label() != text {
+                    self.lyric.set_label(text);
+                    self.center.set_visible_child_name("lyric");
+                    self.report_width("lyric");
+                }
+            }
+            None => {
+                if self.lyric_on.replace(false) {
+                    self.lyric.set_label("");
+                    self.show_turn("time");
+                }
+            }
+        }
+    }
+
     fn show_turn(self: &Rc<Self>, page: &'static str) {
+        if self.lyric_on.get() {
+            return; // the lyric holds the center
+        }
         if let Some(id) = self.turn.take() {
             id.remove();
         }
@@ -203,11 +245,16 @@ impl Collapsed {
 
     fn report_width(&self, page: &str) {
         let base = crate::island::COLLAPSED.0;
-        let w = if page == "song" {
-            let (_, natural, _, _) = self.song.measure(Orientation::Horizontal, -1);
-            (f64::from(natural) + SONG_SIDES).clamp(base, SONG_MAX_W)
-        } else {
-            base
+        let w = match page {
+            "song" => {
+                let (_, natural, _, _) = self.song.measure(Orientation::Horizontal, -1);
+                (f64::from(natural) + SONG_SIDES).clamp(base, SONG_MAX_W)
+            }
+            "lyric" => {
+                let (_, natural, _, _) = self.lyric.measure(Orientation::Horizontal, -1);
+                (f64::from(natural) + SONG_SIDES).clamp(base, LYRIC_MAX_W)
+            }
+            _ => base,
         };
         if let Some(f) = self.on_width.borrow().as_ref() {
             f(w);

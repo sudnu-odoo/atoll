@@ -451,6 +451,31 @@ impl MusicCard {
         }
     }
 
+    /// The lyric line being sung now, for the closed notch; `None` when
+    /// not playing or there are no lyrics. Between lines: a note.
+    pub fn current_line(&self) -> Option<String> {
+        let track = self.track.borrow();
+        let np = track.as_ref().filter(|n| n.playing)?;
+        let pos = np.position_now();
+        let lyrics = self.lyrics.borrow();
+        let Lyrics::Lines(lines, _) = &*lyrics else {
+            return None;
+        };
+        let index = lines.partition_point(|l| l.at <= pos).checked_sub(1);
+        let text = index
+            .and_then(|i| lines.get(i))
+            .map_or("", |l| l.text.trim());
+        Some(if text.is_empty() {
+            "♪".into()
+        } else {
+            text.to_owned()
+        })
+    }
+
+    pub fn is_playing(&self) -> bool {
+        self.track.borrow().as_ref().is_some_and(|n| n.playing)
+    }
+
     fn show_lyrics(&self, pos: Duration) {
         match &*self.lyrics.borrow() {
             Lyrics::Loading => self.lyrics_view.message("Looking for lyrics…"),

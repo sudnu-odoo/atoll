@@ -97,6 +97,9 @@ window.island {
 .card-top {
   min-height: 48px;
 }
+.claude-top {
+  min-height: 26px;
+}
 /* A card's own actions (Clear): a slim row at the top of its content. */
 .card-actions {
   margin-bottom: 6px;

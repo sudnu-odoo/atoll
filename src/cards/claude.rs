@@ -26,6 +26,8 @@ use crate::services::claude::{Choice, Question, Reply, Request, ANSWER_TIMEOUT};
 // monospace font).
 /// Long commands show this tall, then scroll inside their box.
 const COMMAND_MAX_H: i32 = 84;
+/// Option lists taller than this scroll, so the card fits the notch.
+const OPTIONS_MAX_H: i32 = 230;
 
 pub struct ClaudeCard {
     pub root: gtk::Box,
@@ -94,8 +96,9 @@ impl ClaudeCard {
         });
         // A plain box, not a CenterBox: a CenterBox asks for twice its widest
         // side, which made the card wider than the notch.
+        // Its own header: a prompt has no clock or tabs to make room for.
         let top = gtk::Box::builder()
-            .css_classes(["card-top"])
+            .css_classes(["claude-top"])
             .spacing(12)
             .build();
         top.append(&title);
@@ -406,7 +409,15 @@ impl ClaudeCard {
             list.append(&self.option_row(&q, choice, &picked));
         }
         list.append(&self.other_row(&q));
-        self.body.append(&list);
+        // Many options would push the last ones (and Other…) past the
+        // notch's maximum height: the list scrolls in place instead.
+        let options = gtk::ScrolledWindow::builder()
+            .hscrollbar_policy(gtk::PolicyType::Never)
+            .propagate_natural_height(true)
+            .max_content_height(OPTIONS_MAX_H)
+            .child(&list)
+            .build();
+        self.body.append(&options);
 
         if q.multi_select {
             let done = control_button(&["pill", "primary-pill"], None);

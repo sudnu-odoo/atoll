@@ -230,6 +230,8 @@ pub struct Island {
     art_url: RefCell<Option<String>>,
     hit: HitRect,
     lyrics_mode: Cell<bool>,
+    /// Closed notch in lyrics mode: follows the line being sung.
+    lyric_tick: RefCell<Option<glib::SourceId>>,
     /// Pinned: stays open when the pointer leaves, e.g. to read lyrics while
     /// working.
     pinned: Cell<bool>,
@@ -510,6 +512,7 @@ impl Island {
             art_url: RefCell::new(None),
             hit,
             lyrics_mode: Cell::new(false),
+            lyric_tick: RefCell::new(None),
             pinned: Cell::new(false),
             music_gone: RefCell::new(None),
             collapsed_w: Cell::new(COLLAPSED.0),
@@ -596,6 +599,14 @@ impl Island {
                                     label: "Add a fallback".into(),
                                     description: "Try a second source when LRCLIB has none".into(),
                                 },
+                                claude::Choice {
+                                    label: "Different tool".into(),
+                                    description: "Use another method instead".into(),
+                                },
+                                claude::Choice {
+                                    label: "Plan is fine".into(),
+                                    description: "Keep the plan as written".into(),
+                                },
                             ],
                             multi_select: false,
                         }],
@@ -603,6 +614,13 @@ impl Island {
                     }
                 };
                 self.on_claude(Some(&request));
+                return;
+            }
+            // Closed notch showing a lyric line (preview only).
+            "collapsed-lyric" if crate::preview::active() => {
+                self.collapsed.set_lyric(Some(
+                    "And I'm stuck in yesterday, for me it's still the same",
+                ));
                 return;
             }
             "lyrics" => {
@@ -873,6 +891,7 @@ impl Island {
                 }));
                 self.request_lyrics();
                 self.set_has_music(true);
+                self.sync_lyric(); // play/pause starts or stops it
             }
             Update::Track(None) => {
                 if self.music_gone.borrow().is_some() || !self.has_music.get() {
@@ -930,6 +949,50 @@ impl Island {
         self.request_lyrics();
     }
 
+    /// While closed, playing and in lyrics mode, the closed notch shows the
+    /// line being sung; checked a few times a second, only then (no timer
+    /// otherwise).
+    fn sync_lyric(self: &Rc<Self>) {
+        if crate::preview::active() {
+            return; // previews set the line themselves
+        }
+        let wanted = |i: &Island| {
+            i.state.get() == State::Collapsed
+                && i.lyrics_mode.get()
+                && i.has_music.get()
+                && i.music.is_playing()
+        };
+        if !wanted(self) {
+            if let Some(id) = self.lyric_tick.take() {
+                id.remove();
+            }
+            self.collapsed.set_lyric(None);
+            return;
+        }
+        if self.lyric_tick.borrow().is_some() {
+            return;
+        }
+        let show = |i: &Rc<Island>| {
+            let line = i.music.current_line();
+            i.collapsed.set_lyric(line.as_deref());
+        };
+        show(self);
+        let weak = Rc::downgrade(self);
+        let id = glib::timeout_add_local(Duration::from_millis(300), move || {
+            let Some(i) = weak.upgrade() else {
+                return glib::ControlFlow::Break;
+            };
+            if !wanted(&i) {
+                i.lyric_tick.take();
+                i.collapsed.set_lyric(None);
+                return glib::ControlFlow::Break;
+            }
+            show(&i);
+            glib::ControlFlow::Continue
+        });
+        self.lyric_tick.replace(Some(id));
+    }
+
     fn toggle_lyrics(self: &Rc<Self>) {
         let on = !self.lyrics_mode.get();
         self.lyrics_mode.set(on);
@@ -978,6 +1041,7 @@ impl Island {
         if self.pinned.get() {
             self.toggle_pin();
         }
+        self.sync_lyric();
     }
 
     fn set_has_music(self: &Rc<Self>, has: bool) {
@@ -1246,6 +1310,7 @@ impl Island {
 
     fn expand(self: &Rc<Self>) {
         let switching = self.state.replace(State::Expanded) == State::Expanded;
+        self.sync_lyric();
         if !switching {
             // Opening fresh: the pill appears on its tab, no glide.
             self.pill.set(None);
@@ -1406,6 +1471,7 @@ impl Island {
     fn on_settled(self: &Rc<Self>) {
         match self.state.get() {
             State::Collapsed => {
+                self.sync_lyric();
                 self.collapsed.set_width(self.collapsed_w.get());
                 self.set_bounds(self.collapsed_size());
                 self.show_page("collapsed", true);
