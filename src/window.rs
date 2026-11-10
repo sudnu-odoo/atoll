@@ -352,6 +352,17 @@ fn target_of((mx, my, mw, _): (i32, i32, i32, i32), connector: &str) -> (i32, i3
     (x, my)
 }
 
+/// The primary monitor's connector ("DisplayPort-7"): the one with GNOME's
+/// top bar.
+pub fn primary_connector() -> Option<String> {
+    let (conn, _) = x11rb::connect(None).ok()?;
+    let root = conn.setup().roots[0].root;
+    let reply = conn.randr_get_monitors(root, true).ok()?.reply().ok()?;
+    let m = reply.monitors.iter().find(|m| m.primary)?;
+    let name = conn.get_atom_name(m.name).ok()?.reply().ok()?;
+    String::from_utf8(name.name).ok()
+}
+
 /// Whether the monitor named `connector` is the primary one.
 fn is_primary(conn: &impl Connection, connector: &str) -> bool {
     let root = conn.setup().roots[0].root;

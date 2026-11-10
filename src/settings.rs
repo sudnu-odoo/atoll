@@ -68,6 +68,7 @@ pub fn open(
                 |c| c.autostart,
                 |c, v| c.autostart = v,
             ),
+            show_on_row(&state, &on_change),
             bridge_row(),
         ],
     ));
@@ -134,6 +135,60 @@ fn section(title: &str, rows: &[gtk::Widget]) -> gtk::Box {
     }
     b.append(&card);
     b
+}
+
+/// Which monitors get a notch: the main one (with GNOME's top bar), all, or
+/// one of those connected now.
+fn show_on_row(state: &Rc<RefCell<Config>>, on_change: &OnChange) -> gtk::Widget {
+    use crate::config::ShowOn;
+    let mut choices = vec![ShowOn::Primary, ShowOn::All];
+    let mut names = vec!["Main monitor".to_owned(), "All monitors".to_owned()];
+    if let Some(display) = gdk::Display::default() {
+        let list = display.monitors();
+        for i in 0..list.n_items() {
+            let Some(m) = list.item(i).and_downcast::<gdk::Monitor>() else {
+                continue;
+            };
+            let Some(connector) = m.connector() else {
+                continue;
+            };
+            let model = [m.manufacturer(), m.model()]
+                .into_iter()
+                .flatten()
+                .map(|s| s.to_string())
+                .collect::<Vec<_>>()
+                .join(" ");
+            let g = m.geometry();
+            names.push(if model.is_empty() {
+                format!("{connector} ({}×{})", g.width(), g.height())
+            } else {
+                format!("{model} ({connector})")
+            });
+            choices.push(ShowOn::Monitor(connector.to_string()));
+        }
+    }
+    // A saved monitor that isn't connected now still shows as chosen.
+    let current = state.borrow().show_on.clone();
+    if !choices.contains(&current) {
+        if let ShowOn::Monitor(name) = &current {
+            names.push(format!("{name} (not connected)"));
+            choices.push(current.clone());
+        }
+    }
+    let refs: Vec<&str> = names.iter().map(String::as_str).collect();
+    let dropdown = gtk::DropDown::from_strings(&refs);
+    dropdown.set_selected(choices.iter().position(|c| *c == current).unwrap_or(0) as u32);
+    let (st, oc) = (state.clone(), on_change.clone());
+    dropdown.connect_selected_notify(move |d| {
+        if let Some(choice) = choices.get(d.selected() as usize).cloned() {
+            changer(&st, &oc, move |c| c.show_on = choice.clone())();
+        }
+    });
+    row(
+        "Show on",
+        "Main monitor is the one with the GNOME top bar",
+        &dropdown,
+    )
 }
 
 /// The Atoll Bridge extension: its live state, and a switch that turns it

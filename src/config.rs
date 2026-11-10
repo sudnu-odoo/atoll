@@ -11,6 +11,8 @@ const FILE: &str = "config.json";
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Config {
+    /// Which monitors get a notch.
+    pub show_on: ShowOn,
     /// Atoll switched off in Settings: no notch anywhere, GNOME's banners
     /// back. Stored as "paused" so files without the key mean on.
     pub paused: bool,
@@ -143,6 +145,38 @@ impl Default for Features {
     }
 }
 
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ShowOn {
+    /// The monitor with GNOME's top bar (others have no bar to sit on).
+    #[default]
+    Primary,
+    All,
+    /// One monitor by connector ("DisplayPort-8"); the primary one while
+    /// it isn't connected.
+    Monitor(String),
+}
+
+impl ShowOn {
+    /// The connectors (of those connected) that get a notch.
+    pub fn pick(&self, connected: &[String], primary: Option<&str>) -> Vec<String> {
+        let primary_or_first = || {
+            primary
+                .filter(|p| connected.iter().any(|c| c == p))
+                .map(str::to_owned)
+                .or_else(|| connected.first().cloned())
+                .into_iter()
+                .collect()
+        };
+        match self {
+            ShowOn::All => connected.to_vec(),
+            ShowOn::Primary => primary_or_first(),
+            ShowOn::Monitor(name) if connected.contains(name) => vec![name.clone()],
+            ShowOn::Monitor(_) => primary_or_first(),
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Appearance {
@@ -266,6 +300,25 @@ pub fn parse_hex(s: &str) -> Option<(f64, f64, f64)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn show_on_picks_monitors() {
+        let c = vec!["DP-7".to_owned(), "DP-8".to_owned(), "eDP".to_owned()];
+        assert_eq!(ShowOn::Primary.pick(&c, Some("DP-7")), vec!["DP-7"]);
+        assert_eq!(ShowOn::All.pick(&c, Some("DP-7")).len(), 3);
+        assert_eq!(
+            ShowOn::Monitor("DP-8".into()).pick(&c, Some("DP-7")),
+            vec!["DP-8"]
+        );
+        // Undocked: the chosen monitor is gone, so the primary (laptop) one.
+        let laptop = vec!["eDP".to_owned()];
+        assert_eq!(
+            ShowOn::Monitor("DP-8".into()).pick(&laptop, Some("eDP")),
+            vec!["eDP"]
+        );
+        // Primary unknown: the first monitor rather than none.
+        assert_eq!(ShowOn::Primary.pick(&laptop, None), vec!["eDP"]);
+    }
 
     #[test]
     fn hex_colors() {

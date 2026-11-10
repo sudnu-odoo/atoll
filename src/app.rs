@@ -579,7 +579,7 @@ impl Hub {
                 banners::restore();
             }
         }
-        if old.paused != new.paused {
+        if old.paused != new.paused || old.show_on != new.show_on {
             tracing::info!("atoll {}", if new.paused { "off" } else { "on" });
             self.rebuild_islands();
         }
@@ -645,6 +645,15 @@ impl Hub {
                 usize::MAX
             })
             .collect();
+        let primary = window::primary_connector();
+        let connectors = if crate::preview::active() {
+            connectors
+        } else {
+            self.config
+                .borrow()
+                .show_on
+                .pick(&connectors, primary.as_deref())
+        };
 
         let gone: Vec<String> = self
             .islands
