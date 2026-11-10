@@ -42,6 +42,10 @@ pub struct ControlsCard {
     wifi: Tile,
     bluetooth: Tile,
     airplane: Tile,
+    /// Do Not Disturb: an Atoll setting, not a system service.
+    dnd: Tile,
+    dnd_on: Cell<bool>,
+    on_dnd: Rc<dyn Fn(bool)>,
     power: Tile,
     lock: Tile,
     menu_title: Label,
@@ -62,6 +66,7 @@ impl ControlsCard {
     pub fn new(
         commands: async_channel::Sender<Command>,
         on_typing: impl Fn(Typing) + 'static,
+        on_dnd: impl Fn(bool) + 'static,
     ) -> Rc<Self> {
         // The island's shared top row (tabs, clock, settings) names the card
         // and shows the time; this row keeps only the card's own actions.
@@ -85,6 +90,7 @@ impl ControlsCard {
         let power = tile("atoll-speed-symbolic", "Power Mode", true);
         // An action, not a toggle: just its name, across the last row so the
         // grid has no gap.
+        let dnd = tile("atoll-bell-off-symbolic", "Do Not Disturb", false);
         let lock = tile("atoll-lock-symbolic", "Lock screen", false);
         lock.subtitle.set_visible(false);
         let grid = gtk::Grid::builder()
@@ -98,7 +104,8 @@ impl ControlsCard {
         grid.attach(&bluetooth.root, 1, 0, 1, 1);
         grid.attach(&airplane.root, 0, 1, 1, 1);
         grid.attach(&power.root, 1, 1, 1, 1);
-        grid.attach(&lock.root, 0, 2, 2, 1);
+        grid.attach(&dnd.root, 0, 2, 1, 1);
+        grid.attach(&lock.root, 1, 2, 1, 1);
         let main = gtk::Box::builder().spacing(20).build();
         main.append(&sliders);
         main.append(&grid);
@@ -169,6 +176,9 @@ impl ControlsCard {
             wifi,
             bluetooth,
             airplane,
+            dnd,
+            dnd_on: Cell::new(false),
+            on_dnd: Rc::new(on_dnd),
             power,
             lock,
             menu_title,
@@ -263,6 +273,15 @@ impl ControlsCard {
         on_toggle(&self.airplane, |s| {
             s.airplane.map(|on| Command::SetAirplane(!on))
         });
+        // A tile's first child is its toggle.
+        if let Some(b) = self.dnd.root.first_child().and_downcast::<gtk::Button>() {
+            let weak = Rc::downgrade(self);
+            b.connect_clicked(move |_| {
+                if let Some(c) = weak.upgrade() {
+                    (c.on_dnd)(!c.dnd_on.get());
+                }
+            });
+        }
         on_toggle(&self.power, |s| {
             let current = s.profile.as_deref()?;
             let i = PROFILES
@@ -604,6 +623,17 @@ fn percent(level: f64) -> String {
 
 /// Shows the tile with (on, subtitle), or hides it when the control is
 /// unavailable.
+impl ControlsCard {
+    /// Shows Do Not Disturb as on or off (the app owns the setting).
+    pub fn set_dnd(&self, on: bool) {
+        self.dnd_on.set(on);
+        set_tile(
+            &self.dnd,
+            Some((on, if on { "On" } else { "Off" }.to_owned())),
+        );
+    }
+}
+
 fn set_tile(t: &Tile, state: Option<(bool, String)>) {
     let Some((on, sub)) = state else {
         t.root.set_visible(false);

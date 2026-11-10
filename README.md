@@ -20,8 +20,9 @@ rest of your desktop keeps working.
   and any player that shows up in GNOME's media controls.
 - **Live lyrics**: synced lyrics that follow the song, in the card and in
   the closed notch, one line at a time. Optional English translation.
-- **Quick settings**: Wi-Fi, Bluetooth, airplane mode, power mode, volume,
-  brightness and lock screen, without opening GNOME Settings.
+- **Quick settings**: Wi-Fi, Bluetooth, airplane mode, power mode, Do Not
+  Disturb, volume, brightness and lock screen, without opening GNOME
+  Settings.
 - **Notifications**: new notifications slide out of the notch, and the
   notifications card keeps the latest ones. Click one to open it.
 - **Calendar**: a month view and your day's meetings from your Google

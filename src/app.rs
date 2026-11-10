@@ -87,6 +87,7 @@ pub fn build(app: &Application) {
     let (water_tx, water_rx) = async_channel::unbounded();
     let (settings_tx, settings_rx) = async_channel::unbounded();
     let (translate_tx, translate_rx) = async_channel::unbounded::<bool>();
+    let (dnd_tx, dnd_rx) = async_channel::unbounded::<bool>();
     let (claude_tx, claude_rx) = async_channel::unbounded();
     let (answer_tx, answer_rx) = async_channel::unbounded();
     let (cal_tx, cal_rx) = async_channel::unbounded();
@@ -139,6 +140,7 @@ pub fn build(app: &Application) {
             todo_commands: todo_tx,
             calendar_months,
             set_translate: translate_tx,
+            set_dnd: dnd_tx,
             shelf_commands: shelf_tx,
             controls_commands,
             clear_notifications: clear_tx,
@@ -284,9 +286,13 @@ pub fn build(app: &Application) {
             list.truncate(RECENT_NOTIFICATIONS);
         }
         let items = hub.notifications.borrow().clone();
+        // Do Not Disturb: kept in the list, but no peek.
+        let quiet = hub.config.borrow().do_not_disturb;
         hub.each(|i| {
             i.on_notifications(&items);
-            i.on_peek(peek.clone());
+            if !quiet {
+                i.on_peek(peek.clone());
+            }
         });
     });
     let h = Rc::downgrade(&hub);
@@ -365,6 +371,8 @@ pub fn build(app: &Application) {
     forward(answer_rx, move |reply| h.answer_claude(reply));
     let h = hub.clone();
     forward(translate_rx, move |on| h.set_translate(on));
+    let h = hub.clone();
+    forward(dnd_rx, move |on| h.set_dnd(on));
     forward(settings_rx, move |()| hub.open_settings());
 }
 
@@ -582,6 +590,26 @@ impl Hub {
         });
     }
 
+    /// From the Do Not Disturb tile. Saved directly (Settings doesn't show
+    /// it, so its copy may be stale).
+    fn set_dnd(self: &Rc<Self>, on: bool) {
+        let (before, after) = {
+            let mut c = self.config.borrow_mut();
+            let before = c.hides_banners();
+            c.do_not_disturb = on;
+            (before, c.hides_banners())
+        };
+        self.config.borrow().save();
+        if before != after {
+            if after {
+                banners::hide();
+            } else {
+                banners::restore();
+            }
+        }
+        self.each(|i| i.set_dnd(on));
+    }
+
     /// Applies edited settings live and saves them.
     /// From the lyrics panel's button. Saved without rebuilding the islands
     /// (that would close the open card).
@@ -601,6 +629,7 @@ impl Hub {
         // Not in the Settings window (its copy may be stale): keep the
         // lyrics button's choice.
         new.features.translate_lyrics = self.config.borrow().features.translate_lyrics;
+        new.do_not_disturb = self.config.borrow().do_not_disturb;
         let old = self.config.replace(new.clone());
         new.save();
         if format!("{:?}", old.theme) != format!("{:?}", new.theme) {
@@ -743,6 +772,7 @@ impl Hub {
             island.on_shelf(&s.items());
         }
         island.on_notifications(&self.notifications.borrow());
+        island.set_dnd(self.config.borrow().do_not_disturb);
 
         // Catch up on what's already playing.
         for update in [&self.last_track, &self.last_art] {

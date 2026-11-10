@@ -11,6 +11,9 @@ const FILE: &str = "config.json";
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Config {
+    /// Do Not Disturb (Controls card): no notification peeks, and GNOME's
+    /// own pop-ups hidden too.
+    pub do_not_disturb: bool,
     /// Look for new versions now and then (Settings → General). Stored
     /// inverted, so files without the key mean on.
     #[serde(rename = "skip_update_checks")]
@@ -125,7 +128,7 @@ pub struct Water {
 impl Config {
     /// Notifications take over GNOME's banners only while Atoll is on.
     pub fn hides_banners(&self) -> bool {
-        !self.paused && self.features.notifications
+        !self.paused && (self.features.notifications || self.do_not_disturb)
     }
 }
 

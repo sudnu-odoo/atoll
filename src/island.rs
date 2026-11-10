@@ -152,6 +152,8 @@ pub struct Deps {
     pub calendar_months: async_channel::Sender<(i32, u32)>,
     /// The lyrics translate button: on/off, remembered by the app.
     pub set_translate: async_channel::Sender<bool>,
+    /// The Do Not Disturb tile: on/off, owned by the app.
+    pub set_dnd: async_channel::Sender<bool>,
     pub features: Features,
 }
 
@@ -330,6 +332,7 @@ impl Island {
             controls_commands,
             clear_notifications,
             set_translate,
+            set_dnd,
             features,
         } = deps;
         let size = Rc::new(Cell::new(COLLAPSED));
@@ -365,7 +368,9 @@ impl Island {
         stack.add_named(&todo.root, Some("todo"));
         let shelf = ShelfCard::new(shelf_commands.clone(), on_drag);
         stack.add_named(&shelf.root, Some("shelf"));
-        let controls = ControlsCard::new(controls_commands, typing(&on_typing));
+        let controls = ControlsCard::new(controls_commands, typing(&on_typing), move |on| {
+            let _ = set_dnd.try_send(on);
+        });
         stack.add_named(&controls.root, Some("controls"));
         let notifications = NotificationsCard::new(move |which| {
             let _ = clear_notifications.try_send(which);
@@ -796,6 +801,10 @@ impl Island {
         }
     }
 
+    pub fn set_dnd(&self, on: bool) {
+        self.controls.set_dnd(on);
+    }
+
     pub fn on_controls(&self, state: &crate::services::controls::State) {
         self.controls.update(state);
     }
@@ -1213,7 +1222,16 @@ impl Island {
                     .transition_type(gtk::RevealerTransitionType::SlideRight)
                     .transition_duration(SLIDE_MS)
                     .child(&name_label)
+                    .visible(false)
                     .build();
+                // Closed, it still kept a few pixels, so hovering an icon-only
+                // tab showed a lopsided pill: once the name has slid shut, the
+                // revealer leaves the layout.
+                reveal.connect_child_revealed_notify(|r| {
+                    if !r.reveals_child() && !r.is_child_revealed() {
+                        r.set_visible(false);
+                    }
+                });
                 content.append(&reveal);
                 button.set_child(Some(&content));
                 button.set_tooltip_text(Some(label));
@@ -1238,6 +1256,9 @@ impl Island {
             }
             // The current tab already shows its name.
             button.set_has_tooltip(!on);
+            if on {
+                reveal.set_visible(true);
+            }
             reveal.set_reveal_child(on);
         }
         self.glide_pill();
