@@ -109,6 +109,7 @@ pub fn build(app: &Application) {
     if !crate::preview::active() {
         autostart::apply(config.autostart);
         crate::shell::refresh_saved();
+        crate::update::restart_when_replaced();
     }
     // The socket belongs to the user's running Atoll, never to a preview.
     if !crate::preview::active() {

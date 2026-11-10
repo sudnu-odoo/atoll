@@ -148,6 +148,56 @@ fn cache_dir() -> Option<PathBuf> {
         .map(|p| p.join("atoll"))
 }
 
+/// Restarts Atoll when its installed program file is replaced: an update
+/// through App Center, a double-clicked .deb, apt, or Settings → Updates.
+/// The new version takes over without anyone having to restart it.
+/// Development builds (under `target/`) aren't watched.
+pub fn restart_when_replaced() {
+    use gtk::gio;
+    use gtk::prelude::*;
+    let Some(path) = crate::autostart::installed() else {
+        return;
+    };
+    let Ok(exe) = std::env::current_exe() else {
+        return;
+    };
+    if exe != path {
+        return; // running from somewhere else (a dev build)
+    }
+    let stamp = |p: &std::path::Path| {
+        use std::os::unix::fs::MetadataExt;
+        std::fs::metadata(p).ok().map(|m| (m.ino(), m.mtime()))
+    };
+    let started_with = stamp(&path);
+    let file = gio::File::for_path(&path);
+    let Ok(monitor) = file.monitor_file(gio::FileMonitorFlags::WATCH_MOVES, gio::Cancellable::NONE)
+    else {
+        return;
+    };
+    let pending = std::rc::Rc::new(std::cell::Cell::new(false));
+    monitor.connect_changed(move |_, _, _, _| {
+        // dpkg writes the new file, then swaps it in; wait until it settles.
+        if pending.replace(true) {
+            return;
+        }
+        let (pending, path) = (pending.clone(), path.clone());
+        gtk::glib::timeout_add_local_once(std::time::Duration::from_secs(3), move || {
+            pending.set(false);
+            let now = stamp(&path);
+            if now.is_none() || now == started_with {
+                return; // removed (uninstall) or not really changed
+            }
+            tracing::info!("Atoll was updated; restarting into the new version");
+            restart_after_quit();
+            if let Some(app) = gio::Application::default() {
+                app.quit();
+            }
+        });
+    });
+    // The monitor lives as long as the app.
+    std::mem::forget(monitor);
+}
+
 /// Starts the freshly installed Atoll once this one has quit (the new one
 /// can't start while this one still holds the app's name).
 pub fn restart_after_quit() {
