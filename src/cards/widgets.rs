@@ -121,7 +121,7 @@ pub fn draw_ring(cr: &cairo::Context, w: f64, h: f64, fraction: f64) {
     cr.set_line_width(2.5);
     cr.set_line_cap(cairo::LineCap::Round);
 
-    set_source(cr, palette::BG_RAISED);
+    set_source(cr, palette::bg_raised());
     cr.arc(cx, cy, r, 0.0, TAU);
     let _ = cr.stroke();
 
@@ -195,7 +195,7 @@ fn draw_meter(cr: &cairo::Context, w: f64, h: f64, playing: bool) {
         if playing {
             palette::lavender()
         } else {
-            palette::MUTED
+            palette::muted()
         },
     );
     for (i, (speed, phase)) in BARS.iter().enumerate() {
@@ -275,7 +275,7 @@ fn draw_cover(
     cr.clip();
 
     let Some(img) = image else {
-        set_source(cr, palette::BG_RAISED);
+        set_source(cr, palette::bg_raised());
         let _ = cr.paint();
         return;
     };
@@ -540,7 +540,7 @@ fn draw_eye(cr: &cairo::Context, openness: f64) {
     // rather than two blobs.
     if openness > 0.05 {
         let half = lid_half_width(visible);
-        set_source(cr, palette::MUTED);
+        set_source(cr, palette::muted());
         cr.set_line_width(1.5);
         cr.set_line_cap(cairo::LineCap::Round);
         cr.move_to(cx - half, lid);

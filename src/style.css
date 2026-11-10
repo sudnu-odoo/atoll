@@ -15,6 +15,13 @@ window.island {
   background: transparent;
   box-shadow: none;
 }
+/* The desktop theme paints buttons with a background image (white in light
+   themes) under our background colors; Atoll's buttons use color only. */
+window.island button {
+  background-image: none;
+  text-shadow: none;
+  -gtk-icon-shadow: none;
+}
 
 /* Set on the window and inherited, not with `window.island *`: a rule on
    every widget would outrank (and silently undo) class colors such as
@@ -437,6 +444,7 @@ window.settings button.preset {
   font-size: 12px;
 }
 .claude-title {
+  color: @text; /* not the desktop theme\'s button text */
   font-size: 15px;
   font-weight: 500;
 }
@@ -483,6 +491,7 @@ button.option-row:checked {
   background-color: alpha(@pink, 0.16);
 }
 .option-label {
+  color: @text; /* not the desktop theme\'s button text */
   font-size: 14px;
   font-weight: 500;
 }
@@ -504,6 +513,7 @@ button.option-row:checked .option-label {
   margin-top: 8px;
 }
 .todo-title {
+  color: @text; /* not the desktop theme\'s button text */
   font-size: 15px;
   font-weight: 700;
 }
@@ -547,6 +557,7 @@ button.todo-row.done {
   background-color: alpha(@pink, 0.16);
 }
 .todo-text {
+  color: @text; /* not the desktop theme\'s button text */
   font-size: 14px;
 }
 button.todo-row.done .todo-text {
@@ -683,6 +694,7 @@ window.settings entry {
 
 /* Calendar card */
 .meeting-title {
+  color: @text; /* not the desktop theme\'s button text */
   font-size: 19px;
   font-weight: 700;
 }
@@ -695,6 +707,7 @@ window.settings entry {
   margin-top: 6px;
 }
 .cal-month {
+  color: @text; /* not the desktop theme\'s button text */
   font-size: 13px;
   font-weight: 700;
 }
@@ -767,6 +780,7 @@ button.cal-day.selected {
   background-color: alpha(@lavender, 0.12);
 }
 .cal-event-title {
+  color: @text; /* not the desktop theme\'s button text */
   font-size: 13px;
   font-weight: 500;
 }
@@ -899,6 +913,7 @@ button.control.qs-more.plain {
   color: @bg;
 }
 .qs-title {
+  color: @text; /* not the desktop theme\'s button text */
   font-size: 12px;
   font-weight: 700;
 }

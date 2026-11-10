@@ -595,7 +595,29 @@ fn theme_section(state: &Rc<RefCell<Config>>, on_change: &OnChange) -> gtk::Box 
         presets.append(&swatch);
     }
 
+    // System (follows GNOME's light/dark style), or always one of them.
+    let appearance = gtk::DropDown::from_strings(&["System", "Dark", "Light"]);
+    appearance.set_selected(match state.borrow().theme.appearance {
+        crate::config::Appearance::System => 0,
+        crate::config::Appearance::Dark => 1,
+        crate::config::Appearance::Light => 2,
+    });
+    let (st, oc) = (state.clone(), on_change.clone());
+    appearance.connect_selected_notify(move |d| {
+        let a = match d.selected() {
+            1 => crate::config::Appearance::Dark,
+            2 => crate::config::Appearance::Light,
+            _ => crate::config::Appearance::System,
+        };
+        changer(&st, &oc, move |c| c.theme.appearance = a)();
+    });
+
     let rows = [
+        row(
+            "Appearance",
+            "Light or dark notch; System follows GNOME's style",
+            &appearance,
+        ),
         row("Accent", "Progress, active buttons, excited eyes", &accent),
         row("Secondary", "Labels, meters, sleepy eyes", &secondary),
         row("Presets", "", &presets),

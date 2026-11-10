@@ -1632,7 +1632,7 @@ fn draw(cr: &cairo::Context, win_w: f64, (body_w, h): (f64, f64)) {
     cr.curve_to(w - EAR, 0.0, w - EAR, 0.0, w, 0.0);
     cr.close_path();
 
-    let (r, g, b) = crate::palette::NOTCH;
+    let (r, g, b) = crate::palette::notch();
     cr.set_source_rgb(r, g, b);
     if let Err(e) = cr.fill() {
         tracing::warn!("notch fill failed: {e}");

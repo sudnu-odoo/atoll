@@ -192,7 +192,7 @@ fn rounded_rect(cr: &cairo::Context, x: f64, y: f64, w: f64, h: f64, r: f64) {
 
 /// Progress toward the goal: secondary fading into accent.
 fn draw_bar(cr: &cairo::Context, w: f64, h: f64, fraction: f64) {
-    let (r, g, b) = palette::BG_RAISED;
+    let (r, g, b) = palette::bg_raised();
     cr.set_source_rgb(r, g, b);
     rounded_rect(cr, 0.0, 0.0, w, h, h / 2.0);
     let _ = cr.fill();
@@ -230,7 +230,7 @@ fn draw_chart(cr: &cairo::Context, w: f64, h: f64, v: &View) {
 
     // Guide line at one glass.
     let guide_y = plot_h - plot_h * f64::from(v.glass_ml) / max;
-    let (mr, mg, mb) = palette::MUTED;
+    let (mr, mg, mb) = palette::muted();
     cr.set_source_rgba(mr, mg, mb, 0.5);
     cr.set_line_width(1.0);
     cr.set_dash(&[2.0, 3.0], 0.0);
@@ -249,7 +249,7 @@ fn draw_chart(cr: &cairo::Context, w: f64, h: f64, v: &View) {
         let hour = v.first_hour + i as u32;
         let x = slot * i as f64 + (slot - bar_w) / 2.0;
         // Empty track, so the day's shape is visible even before drinking.
-        let (tr, tg, tb) = palette::BG_RAISED;
+        let (tr, tg, tb) = palette::bg_raised();
         cr.set_source_rgba(tr, tg, tb, 0.55);
         rounded_rect(cr, x, 0.0, bar_w, plot_h, bar_w / 2.0);
         let _ = cr.fill();

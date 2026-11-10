@@ -148,7 +148,7 @@ impl PeekCard {
         let (icon, color) = match peek.kind {
             Kind::Bluetooth { .. } => ("atoll-bluetooth-symbolic", palette::lavender()),
             Kind::Charging => ("atoll-bolt-symbolic", palette::pink()),
-            Kind::Unplugged => ("atoll-unplugged-symbolic", palette::MUTED),
+            Kind::Unplugged => ("atoll-unplugged-symbolic", palette::muted()),
             Kind::Water => ("atoll-drop-symbolic", palette::lavender()),
             Kind::Claude => ("atoll-claude-symbolic", palette::pink()),
             // Success is calm; failure takes the attention color.
@@ -194,7 +194,7 @@ fn draw_gauge(cr: &cairo::Context, w: f64, h: f64, level: Option<(f64, Rgb)>) {
     let r = w.min(h) / 2.0 - 2.0;
     cr.set_line_width(3.5);
     cr.set_line_cap(cairo::LineCap::Round);
-    let (tr, tg, tb) = palette::BG_RAISED;
+    let (tr, tg, tb) = palette::bg_raised();
     cr.set_source_rgb(tr, tg, tb);
     cr.arc(cx, cy, r, 0.0, TAU);
     let _ = cr.stroke();

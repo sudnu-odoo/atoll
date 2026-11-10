@@ -158,6 +158,16 @@ pub fn build(app: &Application) {
         claude_watch: RefCell::default(),
     });
     HUB.with(|h| h.replace(Some(hub.clone())));
+    // GNOME switched between light and dark: follow, if set to System.
+    let weak = Rc::downgrade(&hub);
+    theme::watch_system(move || {
+        let Some(hub) = weak.upgrade() else { return };
+        let theme = hub.config.borrow().theme.clone();
+        if theme.appearance == crate::config::Appearance::System {
+            theme::apply(&theme);
+            hub.each(|i| redraw_all(i.root.upcast_ref()));
+        }
+    });
 
     let (h1, h2) = (Rc::downgrade(&hub), Rc::downgrade(&hub));
     let w = water::Water::new(

@@ -94,6 +94,8 @@ pub const CARDS: &[&str] = &[
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Theme {
+    /// Light or dark notch: following the system's style, or fixed.
+    pub appearance: Appearance,
     /// Accent: progress, active buttons, excited eyes. "#RRGGBB".
     pub accent: String,
     /// Secondary: labels, sleepy eyes, meters. "#RRGGBB".
@@ -141,9 +143,20 @@ impl Default for Features {
     }
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Appearance {
+    /// Follows GNOME's style (Settings → Appearance), live.
+    #[default]
+    System,
+    Dark,
+    Light,
+}
+
 impl Default for Theme {
     fn default() -> Self {
         Self {
+            appearance: Appearance::System,
             accent: "#FF8FB1".into(),
             secondary: "#C9B8FF".into(),
         }
