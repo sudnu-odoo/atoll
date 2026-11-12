@@ -83,9 +83,11 @@ fn shell_snippet_is_valid_bash() {
 
 #[test]
 fn a_card_renders_off_screen() {
-    // Needs an X display (CI provides a virtual one).
-    if std::env::var_os("DISPLAY").is_none() {
-        eprintln!("skipped: no DISPLAY");
+    // Needs an X display without a compositor holding back frames: CI's
+    // virtual one (it sets ATOLL_RENDER_TEST). On a desktop session,
+    // off-screen renders are unreliable, so the test is opt-in there.
+    if std::env::var_os("ATOLL_RENDER_TEST").is_none() || std::env::var_os("DISPLAY").is_none() {
+        eprintln!("skipped: set ATOLL_RENDER_TEST=1 (and a DISPLAY) to run");
         return;
     }
     let home = sandbox("render");

@@ -41,6 +41,8 @@ jobs:
 
       # A virtual X display, so the off-screen card render runs too.
       - name: Unit and integration tests
+        env:
+          ATOLL_RENDER_TEST: "1"
         run: xvfb-run -a cargo test
 
   release:

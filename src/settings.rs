@@ -739,17 +739,6 @@ const CLOCK_STYLES: &[&str] = &[
     "%Y-%m-%d %H:%M",
 ];
 
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn every_clock_style_formats() {
-        for f in super::CLOCK_STYLES {
-            assert!(super::clock_example(f).is_some(), "{f}");
-        }
-        assert!(super::clock_example("").is_none());
-    }
-}
-
 /// The time now in `format`, or `None` if GLib can't format it.
 fn clock_example(format: &str) -> Option<String> {
     let now = glib::DateTime::now_local().ok()?;
@@ -1023,4 +1012,15 @@ fn water_options(state: &Rc<RefCell<Config>>, on_change: &OnChange) -> Vec<gtk::
         row("Remind every", "Minutes after the last drink", &every),
         row("Active hours", "No reminders outside these hours", &hours),
     ]
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn every_clock_style_formats() {
+        for f in super::CLOCK_STYLES {
+            assert!(super::clock_example(f).is_some(), "{f}");
+        }
+        assert!(super::clock_example("").is_none());
+    }
 }
