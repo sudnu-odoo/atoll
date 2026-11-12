@@ -71,6 +71,7 @@ Open **Atoll** from your apps, or click the ⚙ in any open card.
 |---|---|
 | **General** | **Active** turns the notch on or off. **Start at login** starts Atoll with your desktop. **Show on** picks the monitor: the main one (with the top bar), all of them, or one by name. **Atoll Bridge** is explained below. **Updates** checks for, shows and installs new versions. |
 | **Features** | Turn each card and extra on or off: Music (with Lyrics), Eyes, Water, To-do, Shelf, Controls, Notifications, Calendar, Command finished, Claude. Some have their own options, like the daily water goal, reminder hours, or how many minutes before a meeting to remind you. |
+| **Clock** | How the time is written, separately for the closed and the open notch: 14:05, 2:05 PM, 12/11/2026, Thu 12 Nov · 14:05 and more, or your own pattern. |
 | **Card order** | The order of the cards when you open the notch. |
 | **Theme** | **Appearance**: light or dark notch, or **System** to follow Ubuntu's style. The accent and secondary colors, or pick a preset. |
 

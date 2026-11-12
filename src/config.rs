@@ -11,6 +11,8 @@ const FILE: &str = "config.json";
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Config {
+    /// How the time is written, closed and open (Settings → Clock).
+    pub clock: ClockFormat,
     /// Do Not Disturb (Controls card): no notification peeks, and GNOME's
     /// own pop-ups hidden too.
     pub do_not_disturb: bool,
@@ -148,6 +150,25 @@ impl Default for Features {
             controls: true,
             notifications: true,
             order: CARDS.iter().map(|c| (*c).to_owned()).collect(),
+        }
+    }
+}
+
+/// strftime-style patterns, as GLib formats them ("%H:%M", "%d/%m/%Y").
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ClockFormat {
+    /// The closed notch.
+    pub closed: String,
+    /// The open notch: the clock above the tabs, and the clock card.
+    pub open: String,
+}
+
+impl Default for ClockFormat {
+    fn default() -> Self {
+        Self {
+            closed: "%H:%M".into(),
+            open: "%H:%M:%S".into(),
         }
     }
 }

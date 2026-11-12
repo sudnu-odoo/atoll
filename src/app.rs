@@ -142,6 +142,7 @@ pub fn build(app: &Application) {
             calendar_months,
             set_translate: translate_tx,
             set_dnd: dnd_tx,
+            clock: config.clock.clone(),
             shelf_commands: shelf_tx,
             controls_commands,
             clear_notifications: clear_tx,
@@ -653,7 +654,10 @@ impl Hub {
                 banners::restore();
             }
         }
-        if old.paused != new.paused || old.show_on != new.show_on {
+        if old.clock != new.clock {
+            self.deps.borrow_mut().clock = new.clock.clone();
+        }
+        if old.paused != new.paused || old.show_on != new.show_on || old.clock != new.clock {
             tracing::info!("atoll {}", if new.paused { "off" } else { "on" });
             self.rebuild_islands();
         }

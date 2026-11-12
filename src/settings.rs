@@ -83,6 +83,7 @@ pub fn open(
     ));
     content.append(&features_section(&state, &on_change));
     content.append(&order_section(&state, &on_change, &refresh_order));
+    content.append(&clock_section(&state, &on_change));
     content.append(&theme_section(&state, &on_change));
     content.append(
         &Label::builder()
@@ -722,6 +723,158 @@ fn fill_order(list: &gtk::Box, state: &Rc<RefCell<Config>>, on_change: &OnChange
         r.append(&buttons);
         list.append(&r);
     }
+}
+
+/// Ready-made ways to write the time; the list shows each with today's
+/// date and time, so it's clear what you get.
+const CLOCK_STYLES: &[&str] = &[
+    "%H:%M",
+    "%l:%M %p",
+    "%H:%M:%S",
+    "%d/%m/%Y",
+    "%d/%m/%Y %H:%M",
+    "%m/%d/%Y %H:%M",
+    "%a %H:%M",
+    "%a %d %b · %H:%M",
+    "%Y-%m-%d %H:%M",
+];
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn every_clock_style_formats() {
+        for f in super::CLOCK_STYLES {
+            assert!(super::clock_example(f).is_some(), "{f}");
+        }
+        assert!(super::clock_example("").is_none());
+    }
+}
+
+/// The time now in `format`, or `None` if GLib can't format it.
+fn clock_example(format: &str) -> Option<String> {
+    let now = glib::DateTime::now_local().ok()?;
+    now.format(format)
+        .ok()
+        .map(|s| s.trim().to_owned())
+        .filter(|s| !s.is_empty())
+}
+
+fn clock_section(state: &Rc<RefCell<Config>>, on_change: &OnChange) -> gtk::Box {
+    let closed = clock_choice(
+        state,
+        on_change,
+        "Closed notch",
+        "The time shown when the notch is closed",
+        |c| c.clock.closed.clone(),
+        |c, v| c.clock.closed = v,
+    );
+    let open = clock_choice(
+        state,
+        on_change,
+        "Open notch",
+        "The clock above the tabs, and the clock card",
+        |c| c.clock.open.clone(),
+        |c, v| c.clock.open = v,
+    );
+    section("Clock", &[closed, open])
+}
+
+/// A style list (each item shows the time in that style) and, under
+/// Custom…, a pattern field with a live preview.
+fn clock_choice(
+    state: &Rc<RefCell<Config>>,
+    on_change: &OnChange,
+    title: &str,
+    subtitle: &str,
+    get: fn(&Config) -> String,
+    set: fn(&mut Config, String),
+) -> gtk::Widget {
+    let current = get(&state.borrow());
+    let mut names: Vec<String> = CLOCK_STYLES
+        .iter()
+        .map(|f| clock_example(f).unwrap_or_else(|| (*f).to_owned()))
+        .collect();
+    names.push("Custom…".into());
+    let refs: Vec<&str> = names.iter().map(String::as_str).collect();
+    let dropdown = gtk::DropDown::from_strings(&refs);
+    let custom_index = CLOCK_STYLES.len() as u32;
+    let is_custom = !CLOCK_STYLES.contains(&current.as_str());
+    dropdown.set_selected(
+        CLOCK_STYLES
+            .iter()
+            .position(|f| *f == current)
+            .map_or(custom_index, |i| i as u32),
+    );
+
+    // Custom: a pattern like %d/%m/%Y %H:%M, previewed as you type.
+    let entry = gtk::Entry::builder()
+        .text(&current)
+        .placeholder_text("%d/%m/%Y %H:%M")
+        .hexpand(true)
+        .build();
+    let preview = Label::builder()
+        .css_classes(["settings-hint"])
+        .xalign(0.0)
+        .wrap(true)
+        .build();
+    let hint = |pattern: &str| {
+        match clock_example(pattern) {
+        Some(s) => format!("Shows: {s}    ·    %H hour, %M minute, %S second, %d day, %m month, %Y year, %a weekday, %b month name, %p AM/PM"),
+        None => "Not a pattern Atoll can show".to_owned(),
+    }
+    };
+    preview.set_label(&hint(&current));
+    let custom = gtk::Box::builder()
+        .orientation(Orientation::Vertical)
+        .spacing(4)
+        .css_classes(["settings-sub"])
+        .visible(is_custom)
+        .build();
+    custom.append(&entry);
+    custom.append(&preview);
+
+    // Applied once typing pauses: every change rebuilds the notch.
+    let pending: Rc<RefCell<Option<glib::SourceId>>> = Rc::default();
+    let (st, oc, p) = (state.clone(), on_change.clone(), preview.clone());
+    entry.connect_changed(move |e| {
+        let pattern = e.text().to_string();
+        p.set_label(&hint(&pattern));
+        if let Some(id) = pending.take() {
+            id.remove();
+        }
+        if clock_example(&pattern).is_none() {
+            return;
+        }
+        let (st, oc, slot) = (st.clone(), oc.clone(), pending.clone());
+        let id = glib::timeout_add_local_once(std::time::Duration::from_millis(700), move || {
+            slot.take();
+            changer(&st, &oc, move |c| set(c, pattern.clone()))();
+        });
+        pending.replace(Some(id));
+    });
+    let (st, oc, c, e) = (
+        state.clone(),
+        on_change.clone(),
+        custom.clone(),
+        entry.clone(),
+    );
+    dropdown.connect_selected_notify(move |d| {
+        let i = d.selected();
+        c.set_visible(i == custom_index);
+        if let Some(f) = CLOCK_STYLES.get(i as usize) {
+            e.set_text(f);
+            let f = (*f).to_owned();
+            changer(&st, &oc, move |cfg| set(cfg, f.clone()))();
+        }
+    });
+
+    let column = gtk::Box::builder()
+        .orientation(Orientation::Vertical)
+        .spacing(6)
+        .build();
+    column.append(&row(title, subtitle, &dropdown));
+    column.append(&custom);
+    column.upcast()
 }
 
 fn theme_section(state: &Rc<RefCell<Config>>, on_change: &OnChange) -> gtk::Box {

@@ -154,6 +154,8 @@ pub struct Deps {
     pub set_translate: async_channel::Sender<bool>,
     /// The Do Not Disturb tile: on/off, owned by the app.
     pub set_dnd: async_channel::Sender<bool>,
+    /// How the time is written (Settings → Clock).
+    pub clock: crate::config::ClockFormat,
     pub features: Features,
 }
 
@@ -333,6 +335,7 @@ impl Island {
             clear_notifications,
             set_translate,
             set_dnd,
+            clock: clock_format,
             features,
         } = deps;
         let size = Rc::new(Cell::new(COLLAPSED));
@@ -343,10 +346,10 @@ impl Island {
         let s = size.clone();
         notch.set_draw_func(move |_, cr, w, _| draw(cr, f64::from(w), s.get()));
 
-        let collapsed = Collapsed::new(features.eyes);
+        let collapsed = Collapsed::new(features.eyes, &clock_format.closed);
         let music = MusicCard::new(commands, on_lyrics, on_pin);
         music.set_lyrics_available(features.lyrics);
-        let idle = Idle::new();
+        let idle = Idle::new(&clock_format.open);
         let water = WaterCard::new(water_commands);
         let claude = ClaudeCard::new(claude_answers, typing(&on_typing));
         let todo = TodoCard::new(todo_commands, typing(&on_typing));
@@ -458,7 +461,7 @@ impl Island {
             .can_target(false)
             .visible(false)
             .build();
-        crate::cards::live_clock(&clock, "%H:%M:%S");
+        crate::cards::live_clock(&clock, &clock_format.open);
         root.add_overlay(&clock);
         let translate_button =
             control_button(&["pager", "translate"], Some("atoll-translate-symbolic"));

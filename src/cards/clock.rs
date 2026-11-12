@@ -30,6 +30,8 @@ pub struct Collapsed {
     pub root: gtk::CenterBox,
     center: Stack,
     song: Label,
+    /// The time, so its width can be measured (long styles widen the notch).
+    time: Label,
     /// The line being sung, while lyrics mode is on and the notch closed.
     /// Two labels, alternated, so each new line crossfades in.
     lyric: [Label; 2],
@@ -48,7 +50,7 @@ pub struct Collapsed {
 }
 
 impl Collapsed {
-    pub fn new(eyes_enabled: bool) -> Rc<Self> {
+    pub fn new(eyes_enabled: bool, format: &str) -> Rc<Self> {
         let time = Label::builder().css_classes(["clock"]).build();
         let song = Label::builder()
             .css_classes(["collapsed-song"])
@@ -107,6 +109,7 @@ impl Collapsed {
             root,
             center,
             song,
+            time: time.clone(),
             lyric,
             lyric_slot: Cell::new(0),
             lyric_on: Cell::new(false),
@@ -122,9 +125,19 @@ impl Collapsed {
         });
         collapsed.show_turn("time");
         let weak = Rc::downgrade(&collapsed);
+        // With seconds the time ticks every second (only while showing);
+        // otherwise once a minute, like the rest of the closed notch.
+        let ticking = super::has_seconds(format);
+        if ticking {
+            live_clock(&time, format);
+        }
+        let format = format.to_owned();
+        let label = time.clone();
         every_minute(move |now| {
-            if let Ok(s) = now.format("%H:%M") {
-                time.set_label(&s);
+            if !ticking {
+                if let Ok(s) = now.format(&format) {
+                    label.set_label(s.trim());
+                }
             }
             // Idle: the time comes back each minute. Playing: the turns
             // already include it.
@@ -270,6 +283,11 @@ impl Collapsed {
                 let (_, natural, _, _) = shown.measure(Orientation::Horizontal, -1);
                 (f64::from(natural) + SONG_SIDES).clamp(base, LYRIC_MAX_W)
             }
+            // Long time styles ("Thu 12 Nov · 14:05") get room too.
+            "time" => {
+                let (_, natural, _, _) = self.time.measure(Orientation::Horizontal, -1);
+                (f64::from(natural) + SONG_SIDES).clamp(base, SONG_MAX_W)
+            }
             _ => base,
         };
         if let Some(f) = self.on_width.borrow().as_ref() {
@@ -283,9 +301,9 @@ pub struct Idle {
 }
 
 impl Idle {
-    pub fn new() -> Self {
+    pub fn new(format: &str) -> Self {
         let time = Label::builder().css_classes(["big-clock"]).build();
-        live_clock(&time, "%H:%M:%S");
+        live_clock(&time, format);
         let date = Label::builder().css_classes(["caps"]).build();
 
         let root = gtk::Box::builder()
